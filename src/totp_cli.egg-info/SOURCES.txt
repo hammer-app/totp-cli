@@ -11,6 +11,7 @@ src/totp_cli/cli/formatter.py
 src/totp_cli/cli/handler.py
 src/totp_cli/core/__init__.py
 src/totp_cli/core/exceptions.py
+src/totp_cli/core/key_manager.py
 src/totp_cli/core/totp.py
 src/totp_cli/domain/__init__.py
 src/totp_cli/domain/exceptions.py

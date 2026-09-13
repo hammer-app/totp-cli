@@ -7,5 +7,6 @@
 from __future__ import annotations
 
 from totp_cli.core.key_manager import KeyManager
+from totp_cli.core.secure_storage import SecureStorage
 
-__all__ = ["KeyManager"]
+__all__ = ["KeyManager", "SecureStorage"]

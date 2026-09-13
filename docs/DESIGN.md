@@ -133,7 +133,7 @@ JSON全体を暗号化し、ファイルにはメタデータと暗号文だけ�
 ```
 
 | ライブラリ | 長所 | 短所 | 評価 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `argparse` | 標準搭載、依存が少ない、細かい制御が可能 | 定義量がやや多い | 推奨 |
 | `click` | サブコマンドや入力処理が書きやすい | 外部依存が増える | 採用候補 |
 | `typer` | 型ヒントを利用でき、記述量が少ない | Click依存、抽象化が強い | 将来候補 |
@@ -217,7 +217,7 @@ class CommandParseError(TotpCliError):
 
 ## 6. KeyManager
 
-### 責務
+### KeyManagerの責務
 
 - AES-256用の32バイト鍵を生成する
 - 鍵ファイルを読み込む
@@ -226,7 +226,7 @@ class CommandParseError(TotpCliError):
 - 通常の読み込み処理では、外部にある鍵ファイルの存在、形式、読み取り可否を検証する
 - initとrekeyでは、指定された外部パスへ新規鍵を生成・保存する
 
-### インターフェース定義
+### KeyManagerのインターフェース定義
 
 ```python
 class KeyManager:
@@ -301,7 +301,7 @@ class KeyManager:
 
 ## 7. SecureStorage
 
-### 責務
+### SecureStorageの責務
 
 - 暗号化JSONの読み込みと復号
 - JSONデータの暗号化
@@ -309,7 +309,7 @@ class KeyManager:
 - 再暗号化
 - 暗号文の形式・バージョン検証
 
-### インターフェース定義
+### SecureStorageのインターフェース定義
 
 ```python
 class SecureStorage:
@@ -394,13 +394,13 @@ class SecureStorage:
 
 ## 8. TotpGenerator
 
-### 責務
+### TotpGeneratorの責務
 
 - Base32形式のTOTPシークレットを検証する
 - RFC 6238準拠のコードを生成する
 - 桁数、時間ステップ、アルゴリズムを管理する
 
-### インターフェース定義
+### TotpGeneratorのインターフェース定義
 
 ```python
 class TotpGenerator:
@@ -505,7 +505,7 @@ class ServiceRegistry:
 
 ## 11. CliHandler
 
-### 責務
+### CliHandlerの責務
 
 - CLI引数の初期取得
 - 省略形コマンドの判定
@@ -513,7 +513,7 @@ class ServiceRegistry:
 - argparseによる正式な引数解析
 - CLI例外のユーザー向けメッセージへの変換
 
-### インターフェース定義
+### CliHandlerのインターフェース定義
 
 ```python
 class CliHandler:

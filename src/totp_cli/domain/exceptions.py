@@ -57,3 +57,9 @@ class CommandParseError(TotpCliError):
     """CLI引数の解析に失敗した場合に送出される例外。"""
 
     exit_code: int = 2
+
+
+class CancelledError(TotpCliError):
+    """対話確認（上書き警告・ローテーション上限警告等）でユーザーが操作を中止した場合の例外。"""
+
+    exit_code: int = 7

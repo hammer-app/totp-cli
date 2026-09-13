@@ -9,6 +9,7 @@ import pytest
 
 from totp_cli.domain import (
     AppConfig,
+    CancelledError,
     CommandParseError,
     EncryptedPayload,
     InvalidKeyError,
@@ -33,6 +34,7 @@ class TestExceptionHierarchy:
             (ServiceNotFoundError, 5),
             (InvalidSecretError, 6),
             (CommandParseError, 2),
+            (CancelledError, 7),
         ],
     )
     def test_subclasses_inherit_from_base_and_expose_exit_code(
@@ -69,6 +71,7 @@ ALL_TOTP_CLI_EXCEPTION_TYPES: list[type[TotpCliError]] = [
     ServiceNotFoundError,
     InvalidSecretError,
     CommandParseError,
+    CancelledError,
 ]
 
 
@@ -261,6 +264,7 @@ class TestDomainPackageExports:
             "ServiceNotFoundError",
             "InvalidSecretError",
             "CommandParseError",
+            "CancelledError",
             "SecretRecord",
             "AppConfig",
             "EncryptedPayload",

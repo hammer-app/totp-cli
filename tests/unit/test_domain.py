@@ -60,6 +60,79 @@ class TestExceptionHierarchy:
         assert "JBSWY" not in str(error)
 
 
+#: Zero Leakage Rule の徹底確認対象となる、全ての専用例外クラス。
+ALL_TOTP_CLI_EXCEPTION_TYPES: list[type[TotpCliError]] = [
+    TotpCliError,
+    KeyNotFoundError,
+    InvalidKeyError,
+    StorageCorruptedError,
+    ServiceNotFoundError,
+    InvalidSecretError,
+    CommandParseError,
+]
+
+
+class TestZeroLeakageRuleAcrossExceptions:
+    """全例外クラス共通のZero Leakage Rule（秘密情報の非漏洩）を確認するテスト。
+
+    StorageCorruptedError等の例外は、暗号化データの破損や復号失敗など
+    ファイルパスやシークレットに触れやすい文脈で送出されるため、例外
+    オブジェクト自身が渡されたメッセージ以外の情報を一切保持しないこと
+    （＝呼び出し元が安全なメッセージを渡す限り漏洩し得ないこと）を保証する。
+    """
+
+    @pytest.mark.parametrize("exception_type", ALL_TOTP_CLI_EXCEPTION_TYPES)
+    def test_instance_holds_no_hidden_state_beyond_the_message(
+        self, exception_type: type[TotpCliError]
+    ) -> None:
+        """例外インスタンスの__dict__が空であり、メッセージ以外の隠れた属性を保持しないことを確認する。"""
+        error = exception_type("safe generic message")
+        assert vars(error) == {}
+        assert error.args == ("safe generic message",)
+
+    @pytest.mark.parametrize("exception_type", ALL_TOTP_CLI_EXCEPTION_TYPES)
+    def test_str_and_repr_contain_nothing_beyond_the_given_safe_message(
+        self, exception_type: type[TotpCliError]
+    ) -> None:
+        """安全なメッセージのみを渡した場合、strとreprに余分な情報が付加されないことを確認する。"""
+        safe_message = "storage data could not be processed"
+        error = exception_type(safe_message)
+        assert str(error) == safe_message
+        assert safe_message in repr(error)
+
+    def test_storage_corrupted_error_message_omits_path_and_secret_markers(
+        self,
+    ) -> None:
+        """StorageCorruptedErrorに、鍵やシークレットを含まない安全なメッセージのみを渡した場合の
+        strとreprが、ファイルパス区切りやシークレットらしき文字列を含まないことを確認する。
+        """
+        error = StorageCorruptedError("暗号化データの認証タグ検証に失敗しました")
+        assert "JBSWY" not in str(error)
+        assert "JBSWY" not in repr(error)
+        assert "\\" not in str(error)
+        assert "/" not in str(error)
+
+    def test_storage_corrupted_error_does_not_expose_underlying_cause_secrets(
+        self,
+    ) -> None:
+        """__cause__経由で連鎖された下位例外の内容が、StorageCorruptedError自体の
+        strには現れない（呼び出し元が安全なメッセージへ変換する責務を持つ）ことを確認する。
+        """
+        underlying_secret_leak = ValueError(
+            "raw-master-key-bytes-should-not-appear-here"
+        )
+        try:
+            try:
+                raise underlying_secret_leak
+            except ValueError as exc:
+                raise StorageCorruptedError(
+                    "暗号化データを復号できませんでした"
+                ) from exc
+        except StorageCorruptedError as error:
+            assert "raw-master-key-bytes-should-not-appear-here" not in str(error)
+            assert error.__cause__ is underlying_secret_leak
+
+
 class TestSecretRecord:
     """SecretRecord ドメインモデルに関するテスト。"""
 

@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Custom CLI TOTP Authenticator"
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=41.0",
+]
 
 [project.optional-dependencies]
 dev = [

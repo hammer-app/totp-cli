@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from totp_cli.domain.exceptions import (
+    CancelledError,
     CommandParseError,
     InvalidKeyError,
     InvalidSecretError,
@@ -24,6 +25,7 @@ __all__ = [
     "ServiceNotFoundError",
     "InvalidSecretError",
     "CommandParseError",
+    "CancelledError",
     "SecretRecord",
     "AppConfig",
     "EncryptedPayload",

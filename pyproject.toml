@@ -12,6 +12,9 @@ dependencies = [
     "cryptography>=41.0",
 ]
 
+[project.scripts]
+totp = "totp_cli.__main__:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",

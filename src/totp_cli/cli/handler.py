@@ -43,6 +43,54 @@ DEFAULT_STORAGE_FILENAME: str = "totp-secrets.enc"
 ENV_KEY_PATH_VARIABLE: str = "TOTP_KEY_PATH"
 
 
+#: パスの前後引用符として認識する文字。
+_QUOTE_CHARS = "\"'"
+
+
+def _strip_quotes(value: str) -> str:
+    """前後の空白、および前後を囲む一致した引用符（`"` または `'`）を除去する。
+
+    Windowsのエクスプローラーの「パスのコピー」やシェルの挙動によって、
+    パス全体が引用符で囲まれたまま渡される場合があるため、ファイルパスを
+    受け取るすべての箇所（対話入力・CLI引数）で正規化に使用する。
+
+    以下の場合は :class:`argparse.ArgumentTypeError` を送出する。
+
+    - 引用符が片側にしか無い、または開始・終了の引用符の種類が一致しない
+      （閉じられていない引用符）場合
+    - 引用符・前後の空白を除去した結果が空文字列になる場合
+    """
+    stripped = value.strip()
+    starts_with_quote = bool(stripped) and stripped[0] in _QUOTE_CHARS
+    ends_with_quote = bool(stripped) and stripped[-1] in _QUOTE_CHARS
+
+    if starts_with_quote or ends_with_quote:
+        is_matched_pair = (
+            len(stripped) >= 2
+            and starts_with_quote
+            and ends_with_quote
+            and stripped[0] == stripped[-1]
+        )
+        if not is_matched_pair:
+            raise argparse.ArgumentTypeError(
+                f"引用符が正しく閉じられていません: {value!r}"
+            )
+        stripped = stripped[1:-1].strip()
+
+    if not stripped:
+        raise argparse.ArgumentTypeError("パスを空にすることはできません")
+
+    return stripped
+
+
+def _parse_path_argument(value: str) -> Path:
+    """CLI引数の文字列から引用符・前後の空白を除去したうえで `Path` へ変換する。
+
+    `argparse` の `--key`/`--storage` オプションの `type` として使用する。
+    """
+    return Path(_strip_quotes(value))
+
+
 class _ArgumentParser(argparse.ArgumentParser):
     """argparseの既定のexit動作を無効化し、CommandParseErrorへ変換するパーサー。
 
@@ -165,6 +213,9 @@ class CliHandler:
         except ValueError as error:
             formatter.write_error(str(error), self._stderr)
             return 1
+        except OSError as error:
+            formatter.write_error(f"ファイル操作に失敗しました: {error}", self._stderr)
+            return 1
 
     @staticmethod
     def _exit_code_from_system_exit(exc: SystemExit) -> int:
@@ -207,41 +258,49 @@ class CliHandler:
         subparsers = parser.add_subparsers(dest="command")
 
         init_parser = subparsers.add_parser("init", help="新しい鍵ファイルを作成する")
-        init_parser.add_argument("-k", "--key", type=Path, default=None)
+        init_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
 
         generate_parser = subparsers.add_parser(
             "generate", aliases=["get"], help="TOTPコードを生成して表示する"
         )
         generate_parser.add_argument("service")
-        generate_parser.add_argument("-k", "--key", type=Path, default=None)
-        generate_parser.add_argument("--storage", type=Path, default=None)
+        generate_parser.add_argument(
+            "-k", "--key", type=_parse_path_argument, default=None
+        )
+        generate_parser.add_argument(
+            "--storage", type=_parse_path_argument, default=None
+        )
 
         add_parser = subparsers.add_parser("add", help="新しいサービスを登録する")
         add_parser.add_argument("service")
         add_parser.add_argument("--secret", "-s", default=None)
         add_parser.add_argument("--issuer", default=None)
-        add_parser.add_argument("-k", "--key", type=Path, default=None)
-        add_parser.add_argument("--storage", type=Path, default=None)
+        add_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
+        add_parser.add_argument("--storage", type=_parse_path_argument, default=None)
 
         list_parser = subparsers.add_parser(
             "list", aliases=["ls"], help="登録済みサービスの一覧を表示する"
         )
-        list_parser.add_argument("-k", "--key", type=Path, default=None)
-        list_parser.add_argument("--storage", type=Path, default=None)
+        list_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
+        list_parser.add_argument("--storage", type=_parse_path_argument, default=None)
 
         remove_parser = subparsers.add_parser(
             "remove", aliases=["rm"], help="登録済みサービスを削除する"
         )
         remove_parser.add_argument("service")
         remove_parser.add_argument("--force", "-f", action="store_true")
-        remove_parser.add_argument("-k", "--key", type=Path, default=None)
-        remove_parser.add_argument("--storage", type=Path, default=None)
+        remove_parser.add_argument(
+            "-k", "--key", type=_parse_path_argument, default=None
+        )
+        remove_parser.add_argument("--storage", type=_parse_path_argument, default=None)
 
         rekey_parser = subparsers.add_parser(
             "rekey", help="鍵を更新し、データを再暗号化する"
         )
-        rekey_parser.add_argument("-k", "--key", type=Path, default=None)
-        rekey_parser.add_argument("--storage", type=Path, default=None)
+        rekey_parser.add_argument(
+            "-k", "--key", type=_parse_path_argument, default=None
+        )
+        rekey_parser.add_argument("--storage", type=_parse_path_argument, default=None)
 
         config_parser = subparsers.add_parser(
             "config", help="現在解決される設定内容を表示する"
@@ -337,7 +396,12 @@ class CliHandler:
         return response.strip().lower() in {"y", "yes"}
 
     def _prompt_for_key_output_path(self) -> Path | None:
-        """`init` で `--key` 未指定時に、鍵ファイルの出力先を対話入力で取得する。"""
+        """`init` で `--key` 未指定時に、鍵ファイルの出力先を対話入力で取得する。
+
+        空欄（Enterのみ）の場合は既定どおり無言でキャンセル扱いとする。
+        引用符のみ・不一致な引用符など、明らかに不正な入力が行われた
+        場合はエラーメッセージを表示したうえでキャンセル扱いとする。
+        """
         formatter.write_info(
             "鍵ファイルの新規作成先パスを入力してください（空欄でキャンセル）:",
             self._stderr,
@@ -346,8 +410,14 @@ class CliHandler:
             response = self._input()
         except EOFError:
             return None
-        response = response.strip()
-        return Path(response) if response else None
+        if not response.strip():
+            return None
+        try:
+            normalized = _strip_quotes(response)
+        except argparse.ArgumentTypeError as error:
+            formatter.write_error(str(error), self._stderr)
+            return None
+        return Path(normalized)
 
     def _prompt_for_secret(self) -> str | None:
         """`add` で `--secret` 未指定時に、TOTPシークレットを対話入力で取得する。"""

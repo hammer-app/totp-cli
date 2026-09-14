@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -187,12 +188,84 @@ class TestInitCommand:
         assert key_path.is_file()
 
     def test_cancels_when_key_path_prompt_is_empty(
-        self, handler_factory: Callable[..., CliHandler]
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
     ) -> None:
-        """対話入力で空欄が入力された場合、CancelledError相当の終了コード7になることを確認する。"""
+        """対話入力で空欄が入力された場合、CancelledError相当の終了コード7になることを確認する。
+
+        単なる空欄入力は既定どおりキャンセル扱いのみとなり、引用符関連の
+        個別エラーメッセージは表示されないことも合わせて確認する。
+        """
         handler = handler_factory([""])
         exit_code = handler.run(["init"])
         assert exit_code == 7
+        assert "引用符" not in stderr.getvalue()
+        assert "パスを空にする" not in stderr.getvalue()
+
+    def test_prompts_for_key_path_quoted_empty_string_is_cancelled_with_error(
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
+    ) -> None:
+        """対話入力に空の引用符（`""`）が入力された場合、エラーを表示したうえでキャンセルされることを確認する。"""
+        handler = handler_factory(['""'])
+        exit_code = handler.run(["init"])
+        assert exit_code == 7
+        assert "パスを空にすることはできません" in stderr.getvalue()
+
+    def test_prompts_for_key_path_quoted_whitespace_only_is_cancelled_with_error(
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
+    ) -> None:
+        """対話入力が空白のみを引用符で囲んだ値（`'   '`）の場合、エラーを表示したうえでキャンセルされることを確認する。"""
+        handler = handler_factory(["'   '"])
+        exit_code = handler.run(["init"])
+        assert exit_code == 7
+        assert "パスを空にすることはできません" in stderr.getvalue()
+
+    def test_prompts_for_key_path_mismatched_quotes_is_cancelled_with_error(
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
+    ) -> None:
+        """対話入力の引用符が一致しない場合、エラーを表示したうえでキャンセルされることを確認する。"""
+        handler = handler_factory(["\"invalid'"])
+        exit_code = handler.run(["init"])
+        assert exit_code == 7
+        assert "引用符が正しく閉じられていません" in stderr.getvalue()
+
+    def test_prompts_for_key_path_unclosed_quote_is_cancelled_with_error(
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
+    ) -> None:
+        """対話入力の引用符が閉じられていない場合、エラーを表示したうえでキャンセルされることを確認する。"""
+        handler = handler_factory(['"unclosed'])
+        exit_code = handler.run(["init"])
+        assert exit_code == 7
+        assert "引用符が正しく閉じられていません" in stderr.getvalue()
+
+    def test_prompts_for_key_path_strips_surrounding_double_quotes(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+    ) -> None:
+        """対話入力の鍵パスがダブルクォーテーションで囲まれていても除去されることを確認する。
+
+        Windowsエクスプローラーの「パスのコピー」等で、パス全体が
+        ダブルクォーテーションで囲まれたまま貼り付けられるケースを想定する。
+        """
+        key_path = tmp_path / "個人用 Vault" / "master.key"
+        quoted_input = f'"{key_path}"'
+        handler = handler_factory([quoted_input])
+        exit_code = handler.run(["init"])
+        assert exit_code == 0
+        assert key_path.is_file()
+
+    def test_prompts_for_key_path_strips_surrounding_single_quotes(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+    ) -> None:
+        """対話入力の鍵パスがシングルクォーテーションで囲まれていても除去されることを確認する。"""
+        key_path = tmp_path / "vault" / "master.key"
+        quoted_input = f"'{key_path}'"
+        handler = handler_factory([quoted_input])
+        exit_code = handler.run(["init"])
+        assert exit_code == 0
+        assert key_path.is_file()
 
     def test_existing_key_with_both_confirmations_accepted_is_overwritten(
         self,
@@ -247,6 +320,216 @@ class TestInitCommand:
         handler.run(["init", "--key", str(key_path)])
         key_bytes = key_path.read_bytes()
         assert key_bytes.hex() not in stderr.getvalue()
+
+    def test_key_option_strips_surrounding_quotes(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+    ) -> None:
+        """`--key`にダブルクォーテーションで囲まれたパスを渡しても正しく解決されることを確認する。
+
+        シェルの挙動によっては、引用符がargvの値そのものに残ったまま
+        Pythonプロセスへ渡される場合があるため、argparseの`type`変換で
+        正規化されることを検証する。
+        """
+        key_path = tmp_path / "個人用 Vault" / "master.key"
+        handler = handler_factory()
+        exit_code = handler.run(["init", "--key", f'"{key_path}"'])
+        assert exit_code == 0
+        assert key_path.is_file()
+
+    def test_short_key_option_strips_surrounding_quotes(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+    ) -> None:
+        """短縮形`-k`にダブルクォーテーションで囲まれたパスを渡しても正しく解決されることを確認する。
+
+        `--key`だけでなく短縮形`-k`でも同じ`type`変換（クォート除去）が
+        適用されることを検証する。
+        """
+        key_path = tmp_path / "個人用 Vault" / "master.key"
+        quoted_key_path = f'"{key_path}"'
+        handler = handler_factory()
+        exit_code = handler.run(["init", "-k", quoted_key_path])
+        assert exit_code == 0
+
+        # クォート除去後の期待パスに鍵ファイルが作成されていることを確認する。
+        assert key_path.is_file()
+        # クォート文字を含んだままのパスにはファイルが作成されていないことを確認する。
+        assert not Path(quoted_key_path).exists()
+
+        # `-k`で作成した鍵を、同じく`-k`＋クォート付きパスで読み込めることも確認する。
+        add_handler = handler_factory()
+        exit_code = add_handler.run(
+            ["add", "github", "-k", quoted_key_path, "--secret", "JBSWY3DPEHPK3PXP"]
+        )
+        assert exit_code == 0
+
+    def test_storage_option_strips_surrounding_quotes(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stdout: io.StringIO,
+    ) -> None:
+        """`--storage`にクォート付きパスを渡しても正しく解決されることを確認する。
+
+        クォート除去後の期待パスにのみファイルが作成され、クォート文字を
+        含んだままのパスにはファイルが作成されないこと、また`list`実行時にも
+        同様にクォートが除去され登録済みサービスが読み出せることまで検証する。
+        """
+        key_path = tmp_path / "master.key"
+        handler = handler_factory()
+        exit_code = handler.run(["init", "-k", str(key_path)])
+        assert exit_code == 0
+
+        custom_storage = tmp_path / "custom" / "secrets.enc"
+        quoted_storage = f'"{custom_storage}"'
+
+        # addの時点で暗号化ストレージが存在している必要があるため、
+        # カスタムパスへ事前に空のストレージを直接初期化しておく
+        # （`init`は`--storage`を受け付けないため）。
+        SecureStorage().initialize(custom_storage, key_path.read_bytes())
+
+        add_handler = handler_factory()
+        exit_code = add_handler.run(
+            [
+                "add",
+                "github",
+                "-k",
+                str(key_path),
+                "--storage",
+                quoted_storage,
+                "--secret",
+                "JBSWY3DPEHPK3PXP",
+            ]
+        )
+        assert exit_code == 0
+
+        # クォート除去後の期待パスに暗号化ストレージが存在することを確認する。
+        assert custom_storage.is_file()
+        # クォート文字を含んだままのパスにはファイルが作成されていないことを確認する。
+        assert not Path(quoted_storage).exists()
+
+        list_handler = handler_factory()
+        exit_code = list_handler.run(
+            ["list", "-k", str(key_path), "--storage", quoted_storage]
+        )
+        assert exit_code == 0
+        assert "github" in stdout.getvalue()
+
+    @pytest.mark.parametrize(
+        ("command", "option", "value"),
+        [
+            ("init", "--key", ""),
+            ("init", "--key", '""'),
+            ("init", "--key", "''"),
+            ("list", "--storage", '"   "'),
+            ("list", "--storage", "'   '"),
+        ],
+    )
+    def test_key_or_storage_option_empty_after_normalization_returns_exit_code_2(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stderr: io.StringIO,
+        command: str,
+        option: str,
+        value: str,
+    ) -> None:
+        """引用符・空白除去後に空文字列となるパスを渡すと終了コード2になることを確認する。
+
+        `--key`は`init`で、`--storage`は（`init`が受け付けないため）`list`で
+        それぞれ検証し、対象オプション自体のパス検証が働くことを確認する。
+        """
+        handler = handler_factory()
+        exit_code = handler.run([command, option, value])
+        assert exit_code == 2
+        assert "Traceback" not in stderr.getvalue()
+        assert "パスを空にすることはできません" in stderr.getvalue()
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [
+            ("--key", "\"invalid'"),
+            ("--key", "'invalid\""),
+            ("--key", '"unclosed'),
+            ("--key", "unclosed'"),
+        ],
+    )
+    def test_key_option_mismatched_or_unclosed_quotes_returns_exit_code_2(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stderr: io.StringIO,
+        option: str,
+        value: str,
+    ) -> None:
+        """引用符が一致しない、または閉じられていないパスを渡すと終了コード2になることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["init", option, value])
+        assert exit_code == 2
+        assert "Traceback" not in stderr.getvalue()
+
+    def test_argument_type_error_message_is_written_to_injected_stderr(
+        self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
+    ) -> None:
+        """不正なパス引数のエラーメッセージが注入済みのstderrへ書き込まれることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["init", "--key", '""'])
+        assert exit_code == 2
+        assert "パスを空にすることはできません" in stderr.getvalue()
+
+    def test_invalid_windows_path_characters_return_exit_code_1_without_crashing(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stdout: io.StringIO,
+        stderr: io.StringIO,
+    ) -> None:
+        """Windowsで不正な文字を含むパスを指定した場合、トレースバックを出さず終了コード1になることを確認する。"""
+        if not sys.platform.startswith("win"):
+            pytest.skip(
+                "Windows固有の不正パス文字のテストのため、Windows以外ではスキップする"
+            )
+
+        invalid_key_path = tmp_path / "in?valid" / "master.key"
+        handler = handler_factory()
+
+        exit_code = handler.run(["init", "--key", str(invalid_key_path)])
+
+        assert exit_code == 1
+        assert stdout.getvalue() == ""
+        assert "エラー" in stderr.getvalue()
+        # 未処理のPythonトレースバック（"Traceback (most recent call last)"）が
+        # stderrへ現れていないことを確認する。
+        assert "Traceback" not in stderr.getvalue()
+
+    def test_os_error_during_key_creation_is_handled_gracefully(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stdout: io.StringIO,
+        stderr: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """鍵ファイル作成時にOSErrorが発生した場合でも、run()がクラッシュせず
+        終了コード1とわかりやすいエラーメッセージを返すことを確認する
+        （プラットフォームに依存しない決定的な検証）。
+        """
+
+        def _raise_os_error(*args: object, **kwargs: object) -> None:
+            raise OSError("simulated invalid path syntax")
+
+        monkeypatch.setattr(Path, "mkdir", _raise_os_error)
+
+        key_path = tmp_path / "vault" / "master.key"
+        handler = handler_factory()
+
+        exit_code = handler.run(["init", "--key", str(key_path)])
+
+        assert exit_code == 1
+        assert stdout.getvalue() == ""
+        assert "エラー" in stderr.getvalue()
+        assert "Traceback" not in stderr.getvalue()
 
 
 class TestGenerateCommand:

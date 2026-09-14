@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import IO, Callable, NoReturn, Sequence
 
+from totp_cli import __version__
 from totp_cli.cli import formatter
 from totp_cli.core.key_manager import KeyManager
 from totp_cli.core.secure_storage import SecureStorage
@@ -28,9 +29,6 @@ from totp_cli.domain.exceptions import (
     TotpCliError,
 )
 from totp_cli.domain.models import SecretRecord
-
-#: CLIのバージョン文字列（`--version`表示用）。
-_VERSION = "0.1.0"
 
 #: config.json / 暗号化データファイルの既定の配置ディレクトリ。
 DEFAULT_CONFIG_DIR: Path = Path.home() / ".totp-cli"
@@ -203,7 +201,7 @@ class CliHandler:
             description="Custom CLI TOTP Authenticator",
         )
         parser.add_argument(
-            "--version", action="version", version=f"%(prog)s {_VERSION}"
+            "--version", action="version", version=f"%(prog)s {__version__}"
         )
 
         subparsers = parser.add_subparsers(dest="command")

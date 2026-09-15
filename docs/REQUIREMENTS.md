@@ -109,7 +109,7 @@
 $ totp init
 $ totp init -k "C:\Users\...\Personal Vault\master.key"
 
-# 2. サービス追加 (-s / --secret, -i / --issuer)
+# 2. サービス追加 (-s / --secret, --issuer)
 $ totp add github
 $ totp add aws -s "JBSWY3DPEHPK3PXP" --issuer Amazon
 

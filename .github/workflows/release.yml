@@ -10,6 +10,9 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

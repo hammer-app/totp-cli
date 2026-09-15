@@ -294,7 +294,7 @@ class TestInvalidFileFormat:
         with pytest.raises(StorageCorruptedError):
             storage.load_secrets(target, key)
 
-    def test_decrypted_service_entry_with_non_string_issuer_raises_storage_corrupted_error(
+    def test_decrypted_entry_with_non_string_issuer_raises_storage_corrupted_error(
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """issuerが文字列でない場合にStorageCorruptedErrorになることを確認する。"""
@@ -360,7 +360,7 @@ class TestInvalidFileFormat:
             storage.load_secrets(target, key)
 
     @pytest.mark.parametrize("field", ["nonce", "ciphertext"])
-    def test_raw_file_nonce_or_ciphertext_with_wrong_type_raises_storage_corrupted_error(
+    def test_raw_file_nonce_or_ciphertext_wrong_type_raises_storage_corrupted_error(
         self, storage: SecureStorage, tmp_path: Path, key: bytes, field: str
     ) -> None:
         """暗号化ファイルのnonce/ciphertextが文字列でない場合にStorageCorruptedErrorになることを確認する。"""
@@ -763,7 +763,7 @@ class TestRekey:
         assert target.read_bytes() == original_bytes
         assert list(tmp_path.iterdir()) == [target]
 
-    def test_rekey_on_tampered_file_raises_storage_corrupted_error_and_leaves_file_untouched(
+    def test_rekey_on_tampered_file_raises_storage_corrupted_error(
         self,
         storage: SecureStorage,
         tmp_path: Path,

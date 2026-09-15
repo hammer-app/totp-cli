@@ -74,14 +74,15 @@ totp init -k "D:\USB\master.key"
 
 ### 2. サービスの登録 (`add`)
 
-Base32 形式の TOTP シークレットを登録します。
+Base32 形式の TOTP シークレットを登録します。シークレットは `--secret`（短縮形: `-s`）で直接指定できます。
 
 ```powershell
 # 対話プロンプトで安全に入力する場合（推奨: ターミナル履歴に残りません）
 totp add github
 
-# 引数で直接指定する場合
+# 引数で直接指定する場合（--secret / -s）
 totp add aws --secret JBSWY3DPEHPK3PXP --issuer Amazon
+totp add aws -s JBSWY3DPEHPK3PXP --issuer Amazon
 
 ```
 
@@ -118,14 +119,15 @@ totp ls
 
 ### 5. サービスの削除 (`remove`、エイリアス: `rm`)
 
-不要になったサービスを安全に削除します。`rm` は `remove` のエイリアスです。
+不要になったサービスを安全に削除します。`rm` は `remove` のエイリアスです。確認プロンプトは `--force`（短縮形: `-f`）でスキップできます。
 
 ```powershell
 # 確認プロンプトあり
 totp remove github
 
-# 確認をスキップして即時削除
+# 確認をスキップして即時削除（--force / -f）
 totp remove github --force
+totp remove github -f
 
 # rm は remove のエイリアス（動作は同じ）
 totp rm github --force
@@ -190,12 +192,14 @@ pip install -e ".[dev]"
 # 全単体・統合テストの実行（カバレッジ計測）
 python -m pytest --cov=totp_cli --cov-report=term-missing
 
-# 静的解析
+# 静的解析（flake8の設定はリポジトリルートの .flake8 から自動的に読み込まれる）
 python -m flake8 src tests
 python -m mypy src --strict
 python -m black --check src tests
 
 ```
+
+`flake8` はリポジトリルートの [`.flake8`](.flake8) 設定（`max-line-length = 88` / `extend-ignore = E203, W503`）に従って実行され、Black のフォーマット結果と競合しません。
 
 現時点での検証実績: **404 passed, 1 skipped**（Windows では `os.chmod` による権限剥奪を検証する1件のみ既定でスキップ）、カバレッジ **100%**。`flake8` / `mypy --strict` / `black --check` はいずれも警告ゼロです。
 

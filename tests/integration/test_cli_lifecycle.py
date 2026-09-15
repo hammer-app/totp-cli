@@ -55,6 +55,7 @@ def _run_cli(
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         input="",
         timeout=_SUBPROCESS_TIMEOUT_SECONDS,
     )

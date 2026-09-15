@@ -31,6 +31,29 @@ Windows 環境での実用性と堅牢性を重視して設計された、高セ
 
 ## インストール
 
+インストール方法は 2 通りあります。Python 環境を用意せずすぐに使いたい場合は「方法 A」、開発やソースからの実行が必要な場合は「方法 B」を選んでください。
+
+### 方法 A: スタンドアロン実行ファイル（totp.exe、Python 不要）
+
+Windows 向けに、Python 環境なしでそのまま実行できる単体バイナリ `totp.exe` を [GitHub Releases](https://github.com/hammer-app/totp-cli/releases) で配布しています。
+
+1. [Releases ページ](https://github.com/hammer-app/totp-cli/releases) を開き、最新リリースのアセットから `totp.exe` をダウンロードします。
+2. 任意のフォルダ（例: `C:\Tools\totp\`）に配置します。
+3. そのフォルダに `PATH` を通しておくと、どこからでも `totp` コマンドとして実行できます（`PATH` を通さない場合は `.\totp.exe` のようにフルパス／相対パスで実行してください）。
+
+```powershell
+# 例: PATH に追加済みのフォルダに配置した場合
+totp.exe --version
+
+# PATH を通していない場合
+C:\Tools\totp\totp.exe --version
+
+```
+
+pip や仮想環境のセットアップは不要です。以降のクイックスタートの `totp` コマンドは、そのまま `totp.exe` に読み替えて実行できます。
+
+### 方法 B: Python / pip 経由（開発・ソース実行向け）
+
 仮想環境を作成し、編集可能（editable）モードまたは通常モードでインストールします。
 
 ```powershell

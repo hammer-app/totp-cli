@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build totp.exe with PyInstaller
+        run: |
+          pyinstaller --onefile --name totp --clean --console src/totp_cli/__main__.py
+
+      - name: Verify totp.exe (--version)
+        run: dist\totp.exe --version
+
+      - name: Verify totp.exe (--help)
+        run: dist\totp.exe --help
+
+      - name: Upload totp.exe to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/totp.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

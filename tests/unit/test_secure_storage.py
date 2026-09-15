@@ -1,4 +1,4 @@
-"""totp_cli.core.secure_storage.SecureStorage の単体テスト。"""
+"""vtotp.core.secure_storage.SecureStorage の単体テスト。"""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from totp_cli.core.secure_storage import SecureStorage
-from totp_cli.domain.exceptions import InvalidKeyError, StorageCorruptedError
-from totp_cli.domain.models import EncryptedPayload, SecretRecord
+from vtotp.core.secure_storage import SecureStorage
+from vtotp.domain.exceptions import InvalidKeyError, StorageCorruptedError
+from vtotp.domain.models import EncryptedPayload, SecretRecord
 
 
 @pytest.fixture

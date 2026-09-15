@@ -1,4 +1,4 @@
-# Project Guidelines: totp-cli
+# Project Guidelines: vtotp
 
 Custom CLI TOTP Authenticator built in Python.
 Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.md` for detailed architectural design specs.
@@ -7,7 +7,7 @@ Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.m
 
 - **Install in Editable Mode:** `pip install -e .`
 - **Run Tests:** `pytest`
-- **Run Tests with Coverage:** `pytest --cov=src/totp_cli`
+- **Run Tests with Coverage:** `pytest --cov=src/vtotp`
 - **Format Code:** `black src tests`
 - **Lint Code:** `flake8 src tests` / `mypy src`
 
@@ -21,7 +21,7 @@ Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.m
 - **Imports Order:**
   1. Standard library modules (`os`, `sys`, `json`, `argparse`, etc.)
   2. Third-party dependencies (`cryptography`, `pyotp`, etc.)
-  3. Internal package modules (`totp_cli.*`)
+  3. Internal package modules (`vtotp.*`)
 
 ### 2. Architecture Constraints (Strict Compliance with `DESIGN.md`)
 

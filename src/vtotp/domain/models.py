@@ -1,4 +1,4 @@
-"""totp_cli のドメインモデル（不変データ構造）を定義するモジュール。
+"""vtotp のドメインモデル（不変データ構造）を定義するモジュール。
 
 DESIGN.md 5章で定義された ``SecretRecord``、``AppConfig``、
 ``EncryptedPayload`` を dataclass として実装する。いずれも不変

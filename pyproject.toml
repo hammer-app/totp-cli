@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "totp-cli"
+name = "vtotp"
 version = "0.1.3"
 description = "Custom CLI TOTP Authenticator"
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-totp = "totp_cli.__main__:main"
+vtotp = "vtotp.__main__:main"
 
 [project.optional-dependencies]
 dev = [

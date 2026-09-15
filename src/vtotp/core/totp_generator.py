@@ -16,7 +16,7 @@ import re
 import time
 from typing import Callable
 
-from totp_cli.domain.exceptions import InvalidSecretError
+from vtotp.domain.exceptions import InvalidSecretError
 
 #: 正規化後のBase32シークレットとして許容される文字集合（RFC 4648、末尾の`=`パディングを含む）。
 _BASE32_PATTERN = re.compile(r"^[A-Z2-7]+=*$")

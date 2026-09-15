@@ -9,8 +9,8 @@ DESIGN.md 10章「ServiceRegistry」に基づき、サービスの登録・取�
 
 from __future__ import annotations
 
-from totp_cli.domain.exceptions import ServiceNotFoundError
-from totp_cli.domain.models import SecretRecord
+from vtotp.domain.exceptions import ServiceNotFoundError
+from vtotp.domain.models import SecretRecord
 
 
 class ServiceRegistry:

@@ -1,6 +1,6 @@
 """CLIコマンドのフルライフサイクルに関するE2E/統合テスト。
 
-`python -m totp_cli` を実際にサブプロセスとして起動し、実運用の利用者に
+`python -m vtotp` を実際にサブプロセスとして起動し、実運用の利用者に
 近い形で一連のコマンド（``init``/``add``/``list``/``generate``/``rekey``/
 ``remove``）とエラー経路・終了コードを検証する。``HOME``/``USERPROFILE``
 をテストごとに隔離したディレクトリへ差し替えることで、``CliHandler``が
@@ -32,7 +32,7 @@ def _run_cli(
     home_dir: Path,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """``python -m totp_cli`` をサブプロセスとして実行し、結果を返す。
+    """``python -m vtotp`` をサブプロセスとして実行し、結果を返す。
 
     ``HOME``/``USERPROFILE`` を ``home_dir`` へ差し替えることで、
     ``CliHandler`` が既定で使用する ``Path.home() / ".totp-cli"``
@@ -50,7 +50,7 @@ def _run_cli(
         env.update(extra_env)
 
     return subprocess.run(
-        [sys.executable, "-m", "totp_cli", *args],
+        [sys.executable, "-m", "vtotp", *args],
         cwd=home_dir,
         env=env,
         capture_output=True,

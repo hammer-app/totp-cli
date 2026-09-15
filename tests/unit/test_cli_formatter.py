@@ -1,4 +1,4 @@
-"""totp_cli.cli.formatter の単体テスト。"""
+"""vtotp.cli.formatter の単体テスト。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import io
 
 import pytest
 
-from totp_cli.cli import formatter
-from totp_cli.domain.models import SecretRecord
+from vtotp.cli import formatter
+from vtotp.domain.models import SecretRecord
 
 
 class TestWriteCode:

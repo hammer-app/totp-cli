@@ -2,7 +2,7 @@
 
 ## 1. 設計方針
 
-- CLI名: `totp-cli`
+- CLI名: `vtotp`
 - 対応OS: Windows / Linux / macOS
 - Python: 3.11以上を推奨
 - 暗号化方式: AES-256-GCM
@@ -16,11 +16,11 @@
 ## 2. 推奨プロジェクト構造
 
 ```text
-totp-cli/
+vtotp/
 ├── pyproject.toml
 ├── README.md
 ├── src/
-│   └── totp_cli/
+│   └── vtotp/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── cli/
@@ -128,7 +128,7 @@ JSON全体を暗号化し、ファイルにはメタデータと暗号文だけ�
 - Windows / Linux / macOSで動作差が少ない
 - -g、-k、--secret、--forceなどを明確に定義できる
 - サブコマンドとエイリアスを細かく制御できる
-- totp-cli <service> の独自フォールバック処理を実装しやすい
+- vtotp <service> の独自フォールバック処理を実装しやすい
 - CLIの挙動を予測しやすい
 ```
 
@@ -584,26 +584,26 @@ class CliHandler:
 ## 12. CLIコマンド定義
 
 ```text
-totp-cli init [--key PATH]
+vtotp init [--key PATH]
 
-totp-cli generate SERVICE [--key PATH] [--storage PATH]
-totp-cli get SERVICE [--key PATH] [--storage PATH]
-totp-cli -g SERVICE [--key PATH] [--storage PATH]
+vtotp generate SERVICE [--key PATH] [--storage PATH]
+vtotp get SERVICE [--key PATH] [--storage PATH]
+vtotp -g SERVICE [--key PATH] [--storage PATH]
 
-totp-cli add SERVICE [--secret SECRET] [--issuer ISSUER]
+vtotp add SERVICE [--secret SECRET] [--issuer ISSUER]
                   [--key PATH] [--storage PATH]
 
-totp-cli remove SERVICE [--force]
+vtotp remove SERVICE [--force]
                     [--key PATH] [--storage PATH]
-totp-cli rm SERVICE [--force]
+vtotp rm SERVICE [--force]
                  [--key PATH] [--storage PATH]
 
-totp-cli list [--key PATH] [--storage PATH]
-totp-cli ls [--key PATH] [--storage PATH]
+vtotp list [--key PATH] [--storage PATH]
+vtotp ls [--key PATH] [--storage PATH]
 
-totp-cli rekey [--key PATH] [--storage PATH]
+vtotp rekey [--key PATH] [--storage PATH]
 
-totp-cli config
+vtotp config
 ```
 
 `config` は、現在解決される `config.json` のパス、マスター鍵パス、
@@ -617,11 +617,11 @@ totp-cli config
 
 ```text
 # いずれも同じ意味
-totp-cli get github --key PATH --storage PATH
-totp-cli get --key PATH --storage PATH github
+vtotp get github --key PATH --storage PATH
+vtotp get --key PATH --storage PATH github
 
-totp-cli rm github --force --key PATH --storage PATH
-totp-cli rm --force --key PATH --storage PATH github
+vtotp rm github --force --key PATH --storage PATH
+vtotp rm --force --key PATH --storage PATH github
 ```
 
 `SERVICE` を最後に置く形式を正式にサポートする。ただし、`--key` または `--storage` の値は必ず同じ引数の直後に指定する。
@@ -684,7 +684,7 @@ totp-cli rm --force --key PATH --storage PATH github
 `rekey` では旧鍵と新鍵を別々の引数で指定しない。更新対象のパスだけを指定する。
 
 ```text
-totp-cli rekey \
+vtotp rekey \
     --key KEY_PATH \
   --storage STORAGE_PATH
 ```
@@ -786,14 +786,14 @@ def normalize_argv(argv: list[str]) -> list[str]:
 ### コマンド名とサービス名が衝突する場合
 
 ```text
-totp-cli init
+vtotp init
 ```
 
 これはサービス名 `init` ではなく、予約サブコマンドとして扱う。サービス名が `init` の場合は、次のように明示する。
 
 ```text
-totp-cli get init
-totp-cli generate init
+vtotp get init
+vtotp generate init
 ```
 
 ## 14. コマンド実行の依存関係

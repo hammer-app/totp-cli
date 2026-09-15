@@ -1,4 +1,4 @@
-"""totp_cli.cli.handler.CliHandler の単体テスト。"""
+"""vtotp.cli.handler.CliHandler の単体テスト。"""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from typing import Callable
 
 import pytest
 
-from totp_cli.cli.handler import CliHandler, ENV_KEY_PATH_VARIABLE
-from totp_cli.core.key_manager import KeyManager
-from totp_cli.core.secure_storage import SecureStorage
-from totp_cli.domain.models import SecretRecord
+from vtotp.cli.handler import CliHandler, ENV_KEY_PATH_VARIABLE
+from vtotp.core.key_manager import KeyManager
+from vtotp.core.secure_storage import SecureStorage
+from vtotp.domain.models import SecretRecord
 
 
 def _make_input(responses: list[str]) -> Callable[[], str]:
@@ -1308,7 +1308,7 @@ class TestHelpAndVersion:
         exit_code = handler.run(["--version"])
         assert exit_code == 0
         captured = capsys.readouterr()
-        assert "totp-cli" in captured.out
+        assert "vtotp" in captured.out
 
 
 class TestKeyManagerIntegration:

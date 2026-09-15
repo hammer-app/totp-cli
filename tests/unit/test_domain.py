@@ -1,4 +1,4 @@
-"""totp_cli.domain パッケージ（例外階層・ドメインモデル）の単体テスト。"""
+"""vtotp.domain パッケージ（例外階層・ドメインモデル）の単体テスト。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from totp_cli.domain import (
+from vtotp.domain import (
     AppConfig,
     CancelledError,
     CommandParseError,
@@ -250,11 +250,11 @@ class TestEncryptedPayload:
 
 
 class TestDomainPackageExports:
-    """totp_cli.domain パッケージの公開インターフェースに関するテスト。"""
+    """vtotp.domain パッケージの公開インターフェースに関するテスト。"""
 
     def test_all_expected_symbols_are_exported(self) -> None:
         """__all__に定義された全シンボルがdomainパッケージ直下から参照できることを確認する。"""
-        import totp_cli.domain as domain_package
+        import vtotp.domain as domain_package
 
         expected_symbols = {
             "TotpCliError",

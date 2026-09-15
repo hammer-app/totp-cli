@@ -1,12 +1,12 @@
-"""totp_cli.core.service_registry.ServiceRegistry の単体テスト。"""
+"""vtotp.core.service_registry.ServiceRegistry の単体テスト。"""
 
 from __future__ import annotations
 
 import pytest
 
-from totp_cli.core.service_registry import ServiceRegistry
-from totp_cli.domain.exceptions import ServiceNotFoundError
-from totp_cli.domain.models import SecretRecord
+from vtotp.core.service_registry import ServiceRegistry
+from vtotp.domain.exceptions import ServiceNotFoundError
+from vtotp.domain.models import SecretRecord
 
 
 @pytest.fixture

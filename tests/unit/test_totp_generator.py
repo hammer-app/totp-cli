@@ -1,4 +1,4 @@
-"""totp_cli.core.totp_generator の単体テスト。
+"""vtotp.core.totp_generator の単体テスト。
 
 RFC 6238 Appendix B の公式テストベクター、およびBase32シークレットの
 正規化・検証ロジックを検証する。
@@ -10,13 +10,13 @@ import base64
 
 import pytest
 
-from totp_cli.core.totp_generator import (
+from vtotp.core.totp_generator import (
     TotpGenerator,
     generate_totp,
     remaining_seconds,
     validate_secret,
 )
-from totp_cli.domain.exceptions import InvalidSecretError
+from vtotp.domain.exceptions import InvalidSecretError
 
 
 def _rfc6238_seed(byte_length: int) -> bytes:

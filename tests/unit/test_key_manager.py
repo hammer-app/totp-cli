@@ -1,4 +1,4 @@
-"""totp_cli.core.key_manager.KeyManager の単体テスト。"""
+"""vtotp.core.key_manager.KeyManager の単体テスト。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from totp_cli.core.key_manager import KeyManager
-from totp_cli.domain.exceptions import InvalidKeyError, KeyNotFoundError
+from vtotp.core.key_manager import KeyManager
+from vtotp.domain.exceptions import InvalidKeyError, KeyNotFoundError
 
 #: chmodによる読み取り権限剥奪がOSレベルで機能しない環境（主にWindows）を判定する。
 IS_WINDOWS = sys.platform.startswith("win")

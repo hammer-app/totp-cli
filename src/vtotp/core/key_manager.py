@@ -14,7 +14,7 @@ import stat
 import tempfile
 from pathlib import Path
 
-from totp_cli.domain.exceptions import InvalidKeyError, KeyNotFoundError
+from vtotp.domain.exceptions import InvalidKeyError, KeyNotFoundError
 
 
 class KeyManager:

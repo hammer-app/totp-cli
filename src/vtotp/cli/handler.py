@@ -16,19 +16,19 @@ import tempfile
 from pathlib import Path
 from typing import IO, Callable, NoReturn, Sequence
 
-from totp_cli import __version__
-from totp_cli.cli import formatter
-from totp_cli.core.key_manager import KeyManager
-from totp_cli.core.secure_storage import SecureStorage
-from totp_cli.core.service_registry import ServiceRegistry
-from totp_cli.core.totp_generator import TotpGenerator
-from totp_cli.domain.exceptions import (
+from vtotp import __version__
+from vtotp.cli import formatter
+from vtotp.core.key_manager import KeyManager
+from vtotp.core.secure_storage import SecureStorage
+from vtotp.core.service_registry import ServiceRegistry
+from vtotp.core.totp_generator import TotpGenerator
+from vtotp.domain.exceptions import (
     CancelledError,
     CommandParseError,
     KeyNotFoundError,
     TotpCliError,
 )
-from totp_cli.domain.models import SecretRecord
+from vtotp.domain.models import SecretRecord
 
 #: config.json / 暗号化データファイルの既定の配置ディレクトリ。
 DEFAULT_CONFIG_DIR: Path = Path.home() / ".totp-cli"
@@ -248,7 +248,7 @@ class CliHandler:
     def _build_parser(self) -> _ArgumentParser:
         """サブコマンド一式を備えたargparseパーサーを構築する。"""
         parser = _ArgumentParser(
-            prog="totp-cli",
+            prog="vtotp",
             description="Custom CLI TOTP Authenticator",
         )
         parser.add_argument(

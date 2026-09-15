@@ -1,11 +1,11 @@
-"""totp_cli.domain パッケージの公開インターフェース。
+"""vtotp.domain パッケージの公開インターフェース。
 
 ドメインモデルおよび例外クラスを外部モジュールへ公開する。
 """
 
 from __future__ import annotations
 
-from totp_cli.domain.exceptions import (
+from vtotp.domain.exceptions import (
     CancelledError,
     CommandParseError,
     InvalidKeyError,
@@ -15,7 +15,7 @@ from totp_cli.domain.exceptions import (
     StorageCorruptedError,
     TotpCliError,
 )
-from totp_cli.domain.models import AppConfig, EncryptedPayload, SecretRecord
+from vtotp.domain.models import AppConfig, EncryptedPayload, SecretRecord
 
 __all__ = [
     "TotpCliError",

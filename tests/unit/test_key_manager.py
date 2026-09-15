@@ -178,7 +178,10 @@ class TestValidateKeyFile:
     def test_raises_invalid_key_error_when_os_access_denies_read(
         self, key_manager: KeyManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """os.access(path, os.R_OK)がFalseを返す場合にInvalidKeyErrorが送出されることを確認する（プラットフォーム非依存）。"""
+        """os.access(path, os.R_OK)がFalseを返す場合に
+
+        InvalidKeyErrorが送出されることを確認する（プラットフォーム非依存）。
+        """
         target = tmp_path / "master.key"
         key_manager.create_key_file(target)
         monkeypatch.setattr(os, "access", lambda path, mode: False)

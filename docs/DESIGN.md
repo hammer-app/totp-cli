@@ -156,13 +156,13 @@ TotpGenerator
     Base32シークレットの検証、TOTPコード生成
 
 ConfigManager
-    config.jsonの読み込み、CLI・環境変数・既定値の統合
+    config.jsonの読み込み、CLI・環境変数・既定値の統合、解決済み設定の提供
 
 ServiceRegistry
     サービスの追加、更新、削除、一覧取得
 
 CommandService
-    init、generate、add、remove、list、rekeyのユースケース実行
+    init、generate、add、remove、list、rekey、configのユースケース実行
 ```
 
 ## 5. ドメインモデルと例外
@@ -451,7 +451,7 @@ class ConfigManager:
         cli_key_path: Path | None,
         cli_storage_path: Path | None,
     ) -> AppConfig:
-        """CLI、環境変数、設定ファイルを統合し、未指定をエラーにする"""
+        """CLI、環境変数、設定ファイル、既定値を統合して解決する"""
         ...
 ```
 
@@ -467,8 +467,11 @@ class ConfigManager:
 データファイルパス:
 1. --storage
 2. config.jsonのstorage_path
-3. 未指定としてエラー
+3. config.jsonと同じディレクトリのtotp-secrets.enc
 ```
+
+`storage_path` が `config.json` に指定されていない場合でもエラーにはせず、
+設定ファイルと同じディレクトリ直下の `totp-secrets.enc` を既定値として使用する。
 
 ## 10. ServiceRegistry
 
@@ -527,6 +530,11 @@ class CliHandler:
         "list",
         "ls",
         "rekey",
+        "config",
+        "-g",
+        "-h",
+        "--help",
+        "--version",
     }
 
     def __init__(
@@ -594,11 +602,16 @@ totp-cli list [--key PATH] [--storage PATH]
 totp-cli ls [--key PATH] [--storage PATH]
 
 totp-cli rekey [--key PATH] [--storage PATH]
+
+totp-cli config
 ```
+
+`config` は、現在解決される `config.json` のパス、マスター鍵パス、
+暗号化ストレージパスを表示する。鍵の内容やTOTPシークレットは表示しない。
 
 ### パスオプションの扱い
 
-`--key` と `--storage` は、暗号鍵ファイルと暗号化済みTOTPシークレットファイルのパスを実行時に一時指定するオプションとして正式に提供する。指定しない場合は、`config.json` の `key_path` と `storage_path` を使用する。これらのオプションによる変更は実行中だけ有効で、`config.json` へ保存しない。
+`--key` と `--storage` は、暗号鍵ファイルと暗号化済みTOTPシークレットファイルのパスを実行時に一時指定するオプションとして正式に提供する。`--key` を指定しない場合は、`TOTP_KEY_PATH`、`config.json` の `key_path` の順に解決する。`--storage` を指定しない場合は、`config.json` の `storage_path`、設定ファイルと同じディレクトリの `totp-secrets.enc` の順に解決する。これらのオプションによる変更は実行中だけ有効で、`config.json` へ保存しない。
 
 これらのオプションは、サブコマンド内の位置引数 `SERVICE` と前後を入れ替えて指定できる。`argparse` のサブパーサーでは、`SERVICE` を位置引数として定義し、`--key`、`--storage`、`--force` などをオプション引数として定義する。
 
@@ -613,7 +626,7 @@ totp-cli rm --force --key PATH --storage PATH github
 
 `SERVICE` を最後に置く形式を正式にサポートする。ただし、`--key` または `--storage` の値は必ず同じ引数の直後に指定する。
 
-`init` の `--key` は、新規鍵ファイルの出力先を指定する。`init` では `--storage` を受け付けない。暗号化データの保存先は設定済みの `config.json` の `storage_path` を使用し、初期化時に既存の暗号化データを復号しない。
+`init` の `--key` は、新規鍵ファイルの出力先を指定する。`init` では `--storage` を受け付けない。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `totp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
 
 `--key` が指定されない場合は、対話入力で出力先を尋ね、入力された外部パスへ新規鍵を保存する。出力先が空の場合やキャンセルされた場合は初期化を中止する。`init` は生成した鍵のパスだけを `config.json` の `key_path` に保存する。
 
@@ -676,7 +689,7 @@ totp-cli rekey \
   --storage STORAGE_PATH
 ```
 
-`--storage` を指定しない場合は `config.json` の `storage_path` を使用する。`--key` を指定しない場合は `config.json` の `key_path` を更新対象とする。
+`--storage` を指定しない場合は `config.json` の `storage_path`、または設定ファイルと同じディレクトリの `totp-secrets.enc` を使用する。`--key` を指定しない場合は `config.json` の `key_path` を更新対象とする。
 
 ## 13. 省略形コマンドのフォールバック処理
 
@@ -686,12 +699,14 @@ totp-cli rekey \
 init
 generate
 get
+-g
 add
 remove
 rm
 list
 ls
 rekey
+config
 -h
 --help
 --version
@@ -822,7 +837,7 @@ CliHandler
     -> ConfigManager.save_key_path(config_path, key_output_path)
 ```
 
-`init` では `config.json` の `key_path` だけを更新する。暗号化データの保存先は設定済みの `config.json` の `storage_path` を使用し、初期化時に既存の暗号化データを復号しない。
+`init` では `config.json` の `key_path` だけを更新する。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `totp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
 
 ### rekey
 
@@ -839,6 +854,20 @@ CliHandler
 ```
 
 `rekey`では、まず対象世代と上限到達の有無を確認する。上限警告に続行応答が得られた場合、旧鍵でデータを復号して新鍵で暗号化した一時ファイルを作成・検証し、その後に鍵ファイルを世代番号付きで繰り上げ、新鍵を `<key_path>` へ配置し、暗号化データをatomicに置き換える。警告への明示的な続行応答がない場合は開始前に中止する。暗号化済みシークレットデータにはローテーション用の `.1`、`.2`、`.3` を作成しない。`rekey`完了後も `config.json` は変更しない。
+
+### config
+
+```text
+CliHandler
+    -> ConfigManager
+    -> KeyManager.resolve_key_path()
+    -> CliHandler._resolve_storage_path()
+    -> OutputWriter.write_config()
+```
+
+`config` は、`config.json` のパス、鍵パス、暗号化ストレージパスを表示する。
+鍵の内容やTOTPシークレットは表示しない。鍵パスが未設定の場合は、鍵パスを
+`(未設定)` と表示し、ストレージパスは通常の既定値解決結果を表示する。
 
 ## 15. 終了コード
 

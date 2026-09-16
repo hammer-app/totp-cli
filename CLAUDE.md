@@ -35,7 +35,7 @@ Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.m
   - Nonce: 12 bytes generated freshly per encryption operation.
 - **Atomic Operations & Rekeying:**
   - Secret data files must be written to temporary files first, then atomically swapped via `os.replace`.
-  - Key rotation (`rekey`) rotates the master key file up to 3 generations (`.key.1`, `.key.2`, `.key.3`).
+  - Key rotation (`rekey`) rotates the master key file up to 3 generations (`<key_path>.1`, `<key_path>.2`, `<key_path>.3`).
   - Secret data (`vtotp-secrets.enc`) is re-encrypted with the new key in-place and DOES NOT create `.1` data backups.
 
 ### 3. Security & Information Protection
@@ -55,5 +55,5 @@ Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.m
 ### 5. Testing Requirements
 
 - Unit tests must be placed in `tests/unit/` and integration tests in `tests/integration/`.
-- Maintain >90% code coverage across core business logic (`core/`, `domain/`, `cli/`).
+- Maintain 100% code coverage across the entire codebase (`src/vtotp`).
 - Always run `pytest` and verify clean output before completing any task.

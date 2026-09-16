@@ -941,3 +941,147 @@ CliHandler
 - 鍵ファイルと暗号化データを同一媒体に置く場合、端末固定の保護強度が
   下がるため、運用ドキュメントで明示する。
 ```
+
+## 18. パッケージング・バイナリ保護設計
+
+### 18.1 採用方式
+
+配布用バイナリは、従来の PyInstaller 方式から Nuitka 方式へ全面的に移行する。
+PyInstaller のように Python バイトコードをアーカイブへ同梱する方式は採用せず、
+Nuitka で Python ソースを C 言語相当の中間コードへ変換し、対象プラットフォームの
+C/C++ コンパイラでネイティブバイナリへコンパイルする。これにより、一般的な
+Python バイトコードデコンパイラによるソース復元を困難にする。
+
+これは暗号鍵、TOTPシークレット、復号済みデータをバイナリへ埋め込む設計ではない。
+鍵と暗号化ストレージは従来どおり外部ファイルとして扱い、Zero Leakage Ruleを
+維持する。Nuitka化による保護はリバースエンジニアリングのコストを上げるものであり、
+ネイティブバイナリからの解析を完全に不可能にするものではない。
+
+### 18.2 エントリポイントとビルドパラメータ
+
+Nuitka の入力は、インストール済みコンソールスクリプトではなく、アプリケーションの
+実行契約が明確な `src/vtotp/__main__.py` とする。`__main__.py` の `main()` が返す
+終了コードを、生成バイナリのプロセス終了コードとして保持する。
+
+標準のリリースビルドは次のパラメータを必須とする。
+
+```text
+python -m nuitka \
+    --standalone \
+    --onefile \
+    --assume-yes-for-downloads \
+    --output-dir=dist \
+    --output-filename=vtotp \
+    --include-package=vtotp \
+    --include-package=cryptography \
+    src/vtotp/__main__.py
+```
+
+`--standalone` は Python ランタイムと依存モジュールを配布物へ含め、
+`--onefile` はそれらを単一の実行ファイルへ格納する。Windows では出力を
+`dist/vtotp.exe`、Linux と macOS では `dist/vtotp` とする。`--output-filename`
+はプラットフォーム間で成果物名を統一するために指定する。
+
+`cryptography` は AES-GCM の C/Rust 拡張およびその実行時依存を含むため、Nuitkaの
+自動解析に加えて `--include-package=cryptography` を指定する。アプリケーション
+パッケージ全体も `--include-package=vtotp` で明示的に含める。ビルドログで除外された
+モジュールがないことを確認し、暗号化・復号を実行するスモークテストで依存バンドルの
+完全性を検証する。
+
+### 18.3 ビルド環境と依存定義
+
+リリースランナーには、次の C/C++ コンパイラを用意する。
+
+| プラットフォーム | 推奨コンパイラ | Nuitkaの指定 | 成果物 |
+| --- | --- | --- | --- |
+| Windows | MSVC（推奨）または MinGW64 | MSVCは既定、MinGW64は `--mingw64` | `dist/vtotp.exe` |
+| Linux | GCC または Clang | Clang使用時は `--clang` | `dist/vtotp` |
+| macOS | Xcode Command Line Tools の Clang | `--clang` | `dist/vtotp` |
+
+Windows の GitHub Actions `windows-latest` では MSVC を標準コンパイラとして使用し、
+別のツールチェーンを明示的に導入しない。Linux と macOS では標準イメージの GCC/
+Clang を使用し、必要な開発ヘッダーを先に導入する。コンパイラの切り替えは、同じ
+リリース成果物内で混在させず、プラットフォームごとに固定する。
+
+`pyproject.toml` では、PyInstaller をランタイム依存にも開発依存にも残さない。
+Nuitka は実行時ライブラリではなくビルドツールなので、ビルド用の任意依存グループへ
+追加する。`zstandard` は Nuitka の圧縮・展開を高速化するため同じグループへ追加する。
+方針は次のとおりとする。
+
+```toml
+[project.optional-dependencies]
+build = [
+        "nuitka>=2.6",
+        "zstandard>=0.23",
+]
+dev = [
+        "pytest>=7.4",
+        "pytest-cov>=4.1",
+        "black>=24.0",
+        "flake8>=7.0",
+        "mypy>=1.8",
+]
+```
+
+CI は `pip install -e ".[build]"` でビルド依存を導入し、アプリケーションの実行時
+依存は引き続き `cryptography` だけを `project.dependencies` に置く。Nuitkaのメジャー
+アップデートは、ビルドログ、スモークテスト、成果物の実行確認を通過した場合だけ採用する。
+
+### 18.4 GitHub Actions リリースパイプライン
+
+`.github/workflows/release.yml` はタグ `v*` を起点とし、次の順序で実行する。
+
+```text
+1. actions/checkout
+2. actions/setup-python（Python 3.11）
+3. windows-latest の MSVC ツールチェーンを確認
+4. pip install -e ".[build]"
+5. 上記の Nuitka コマンドで src/vtotp/__main__.py をビルド
+6. dist/vtotp.exe の存在を確認
+7. バイナリスモークテストを実行
+8. dist/vtotp.exe を vtotp-exe という名前で upload-artifact
+9. 成果物を GitHub Release の vtotp.exe として公開
+```
+
+Windows リリースの成果物パスは常に `dist/vtotp.exe` とし、アップロード設定には
+`if-no-files-found: error` を指定する。これにより、ビルド自体が成功しても出力名や
+出力ディレクトリが変わった場合はリリースを失敗させる。Linux/macOS の成果物を追加
+する場合はプラットフォーム別ジョブを分け、`dist/vtotp` とそれぞれの実行環境で検証
+した成果物だけを公開する。
+
+### 18.5 バイナリスモークテスト
+
+スモークテストは、成果物をアップロードする前にビルドした実行ファイルそのものへ
+実行する。各コマンドは非対話で実行し、終了コード `0` を必須とする。
+
+```powershell
+dist\vtotp.exe --version
+dist\vtotp.exe --help
+dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+```
+
+`init` の検証では、次の条件を追加で確認する。
+
+```text
+- コマンドが終了コード0で完了する
+- RUNNER_TEMP 配下に32バイトの鍵ファイルが生成される
+- config.json と暗号化ストレージの初期化が完了する
+- stdout/stderr に鍵の内容やTOTPシークレットが出力されない
+- Python トレースバックや未処理の例外が出力されない
+```
+
+CI の一時ディレクトリを使い、開発者のホームディレクトリやリポジトリへ秘密情報を
+生成しない。Windows では PowerShell の `$LASTEXITCODE` または Actions のコマンド終了
+コードで判定し、`dist/vtotp.exe` を直接起動することで Python 実行時ではなく Nuitka
+生成物を検証する。
+
+### 18.6 設計上の完了条件
+
+```text
+- PyInstallerの実行、依存、CIステップがリポジトリから除去されている
+- Windows成果物がdist/vtotp.exeとして生成される
+- Nuitkaのstandalone/onefileビルドが毎回再現可能である
+- cryptographyを含む暗号処理がバイナリ単体で動作する
+- --version、--help、initのスモークテストがCIで成功する
+- バイナリ実行時もZero Leakage Ruleと終了コード体系が維持される
+```

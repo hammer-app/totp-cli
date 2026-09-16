@@ -31,16 +31,16 @@ from vtotp.domain.exceptions import (
 from vtotp.domain.models import SecretRecord
 
 #: config.json / 暗号化データファイルの既定の配置ディレクトリ。
-DEFAULT_CONFIG_DIR: Path = Path.home() / ".totp-cli"
+DEFAULT_CONFIG_DIR: Path = Path.home() / ".vtotp"
 
 #: config.jsonの既定パス。
 DEFAULT_CONFIG_PATH: Path = DEFAULT_CONFIG_DIR / "config.json"
 
 #: config.jsonにstorage_pathが未設定の場合に使用する既定の暗号化データファイル名。
-DEFAULT_STORAGE_FILENAME: str = "totp-secrets.enc"
+DEFAULT_STORAGE_FILENAME: str = "vtotp-secrets.enc"
 
 #: 鍵ファイルパスを指定する環境変数名。
-ENV_KEY_PATH_VARIABLE: str = "TOTP_KEY_PATH"
+ENV_KEY_PATH_VARIABLE: str = "VTOTP_KEY_PATH"
 
 
 #: パスの前後引用符として認識する文字。
@@ -371,7 +371,7 @@ class CliHandler:
         """CLIオプション・config.jsonの優先順位で暗号化データファイルパスを解決する。
 
         いずれにも指定が無い場合は、config.jsonと同じディレクトリ内の
-        既定ファイル名（`totp-secrets.enc`）を使用する。
+        既定ファイル名（`vtotp-secrets.enc`）を使用する。
         """
         if cli_storage is not None:
             return cli_storage

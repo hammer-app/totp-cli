@@ -59,9 +59,9 @@ vtotp/
 ### 実行時データの配置例
 
 ```text
-~/.totp-cli/
+~/.vtotp/
 ├── config.json
-└── totp-secrets.enc
+└── vtotp-secrets.enc
 ```
 
 `config.json` は鍵ファイルの内容を保存せず、鍵ファイルのパスだけを指定する。鍵ファイルはツールの内部データとして保持せず、`config.json` の `key_path` に指定された外部パスへ保存する。通常の実行では、指定されたパスに鍵ファイルが存在しない場合、ツールは実行を中止する。
@@ -69,7 +69,7 @@ vtotp/
 ```json
 {
     "key_path": "C:/Users/example/Personal Vault/master.key",
-    "storage_path": "totp-secrets.enc"
+    "storage_path": "vtotp-secrets.enc"
 }
 ```
 
@@ -80,7 +80,7 @@ vtotp/
 - config.jsonには鍵の内容ではなく、鍵ファイルのパスだけを保存する
 - 通常の実行ではconfig.jsonのkey_pathを必須とし、指定先に鍵が存在することを前提にする
 - key_pathのファイルが存在しない、読み込めない、または32バイトでない場合はエラー終了する
-- 通常の実行でTOTP_KEY_PATHや--keyを使用する場合は、指定先に既存の鍵ファイルがあることを必須とする
+- 通常の実行でVTOTP_KEY_PATHや--keyを使用する場合は、指定先に既存の鍵ファイルがあることを必須とする
 - initは新しい32バイト鍵を生成し、指定された外部パスへ保存した上で、そのパスをconfig.jsonへ保存する
 - rekeyはconfig.jsonのkey_pathで指定された鍵ファイルを更新し、既存データを新鍵で再暗号化する
 - initで--keyが指定されない場合は、対話入力で鍵ファイルの出力先を必ず指定させる
@@ -278,7 +278,7 @@ class KeyManager:
         """
         優先順位:
         1. CLIオプション --key
-        2. TOTP_KEY_PATH
+        2. VTOTP_KEY_PATH
         3. config.json
         4. パス未指定としてエラー
         """
@@ -460,18 +460,18 @@ class ConfigManager:
 ```text
 鍵パス:
 1. --key
-2. TOTP_KEY_PATH
+2. VTOTP_KEY_PATH
 3. config.jsonのkey_path
 4. 未指定としてエラー
 
 データファイルパス:
 1. --storage
 2. config.jsonのstorage_path
-3. config.jsonと同じディレクトリのtotp-secrets.enc
+3. config.jsonと同じディレクトリのvtotp-secrets.enc
 ```
 
 `storage_path` が `config.json` に指定されていない場合でもエラーにはせず、
-設定ファイルと同じディレクトリ直下の `totp-secrets.enc` を既定値として使用する。
+設定ファイルと同じディレクトリ直下の `vtotp-secrets.enc` を既定値として使用する。
 
 ## 10. ServiceRegistry
 
@@ -611,7 +611,7 @@ vtotp config
 
 ### パスオプションの扱い
 
-`--key` と `--storage` は、暗号鍵ファイルと暗号化済みTOTPシークレットファイルのパスを実行時に一時指定するオプションとして正式に提供する。`--key` を指定しない場合は、`TOTP_KEY_PATH`、`config.json` の `key_path` の順に解決する。`--storage` を指定しない場合は、`config.json` の `storage_path`、設定ファイルと同じディレクトリの `totp-secrets.enc` の順に解決する。これらのオプションによる変更は実行中だけ有効で、`config.json` へ保存しない。
+`--key` と `--storage` は、暗号鍵ファイルと暗号化済みTOTPシークレットファイルのパスを実行時に一時指定するオプションとして正式に提供する。`--key` を指定しない場合は、`VTOTP_KEY_PATH`、`config.json` の `key_path` の順に解決する。`--storage` を指定しない場合は、`config.json` の `storage_path`、設定ファイルと同じディレクトリの `vtotp-secrets.enc` の順に解決する。これらのオプションによる変更は実行中だけ有効で、`config.json` へ保存しない。
 
 これらのオプションは、サブコマンド内の位置引数 `SERVICE` と前後を入れ替えて指定できる。`argparse` のサブパーサーでは、`SERVICE` を位置引数として定義し、`--key`、`--storage`、`--force` などをオプション引数として定義する。
 
@@ -626,7 +626,7 @@ vtotp rm --force --key PATH --storage PATH github
 
 `SERVICE` を最後に置く形式を正式にサポートする。ただし、`--key` または `--storage` の値は必ず同じ引数の直後に指定する。
 
-`init` の `--key` は、新規鍵ファイルの出力先を指定する。`init` では `--storage` を受け付けない。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `totp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
+`init` の `--key` は、新規鍵ファイルの出力先を指定する。`init` では `--storage` を受け付けない。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `vtotp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
 
 `--key` が指定されない場合は、対話入力で出力先を尋ね、入力された外部パスへ新規鍵を保存する。出力先が空の場合やキャンセルされた場合は初期化を中止する。`init` は生成した鍵のパスだけを `config.json` の `key_path` に保存する。
 
@@ -689,7 +689,7 @@ vtotp rekey \
   --storage STORAGE_PATH
 ```
 
-`--storage` を指定しない場合は `config.json` の `storage_path`、または設定ファイルと同じディレクトリの `totp-secrets.enc` を使用する。`--key` を指定しない場合は `config.json` の `key_path` を更新対象とする。
+`--storage` を指定しない場合は `config.json` の `storage_path`、または設定ファイルと同じディレクトリの `vtotp-secrets.enc` を使用する。`--key` を指定しない場合は `config.json` の `key_path` を更新対象とする。
 
 ## 13. 省略形コマンドのフォールバック処理
 
@@ -837,7 +837,7 @@ CliHandler
     -> ConfigManager.save_key_path(config_path, key_output_path)
 ```
 
-`init` では `config.json` の `key_path` だけを更新する。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `totp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
+`init` では `config.json` の `key_path` だけを更新する。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `vtotp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
 
 ### rekey
 

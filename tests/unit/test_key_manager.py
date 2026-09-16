@@ -321,7 +321,7 @@ class TestResolveKeyPath:
 
 
 def _read_key_path_from_environment(
-    variable_name: str = "TOTP_KEY_PATH",
+    variable_name: str = "VTOTP_KEY_PATH",
 ) -> Path | None:
     """環境変数からのパス読み取りを模した補助関数。
 
@@ -344,11 +344,11 @@ class TestResolveKeyPathWithRealEnvironmentAndConfig:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """実際にTOTP_KEY_PATHとconfig.jsonが設定されていても、--key相当の指定が最優先されることを確認する。"""
+        """実際にVTOTP_KEY_PATHとconfig.jsonが設定されていても、--key相当の指定が最優先されることを確認する。"""
         config_path = tmp_path / "config.key"
         config_path.write_text("dummy")
         env_path = tmp_path / "env.key"
-        monkeypatch.setenv("TOTP_KEY_PATH", str(env_path))
+        monkeypatch.setenv("VTOTP_KEY_PATH", str(env_path))
 
         cli_path = tmp_path / "cli.key"
         result = key_manager.resolve_key_path(
@@ -364,11 +364,11 @@ class TestResolveKeyPathWithRealEnvironmentAndConfig:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """--key未指定時は、実際に設定されたTOTP_KEY_PATHがconfig.jsonより優先されることを確認する。"""
+        """--key未指定時は、実際に設定されたVTOTP_KEY_PATHがconfig.jsonより優先されることを確認する。"""
         config_path = tmp_path / "config.key"
         config_path.write_text("dummy")
         env_path = tmp_path / "env.key"
-        monkeypatch.setenv("TOTP_KEY_PATH", str(env_path))
+        monkeypatch.setenv("VTOTP_KEY_PATH", str(env_path))
 
         result = key_manager.resolve_key_path(
             cli_path=None,
@@ -383,8 +383,8 @@ class TestResolveKeyPathWithRealEnvironmentAndConfig:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """TOTP_KEY_PATHが未設定の場合、config.jsonのkey_pathが使われることを確認する。"""
-        monkeypatch.delenv("TOTP_KEY_PATH", raising=False)
+        """VTOTP_KEY_PATHが未設定の場合、config.jsonのkey_pathが使われることを確認する。"""
+        monkeypatch.delenv("VTOTP_KEY_PATH", raising=False)
         config_path = tmp_path / "config.key"
         config_path.write_text("dummy")
 
@@ -401,8 +401,8 @@ class TestResolveKeyPathWithRealEnvironmentAndConfig:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """TOTP_KEY_PATHが空文字列の場合は未指定として扱われ、config.jsonへフォールバックすることを確認する。"""
-        monkeypatch.setenv("TOTP_KEY_PATH", "")
+        """VTOTP_KEY_PATHが空文字列の場合は未指定として扱われ、config.jsonへフォールバックすることを確認する。"""
+        monkeypatch.setenv("VTOTP_KEY_PATH", "")
         config_path = tmp_path / "config.key"
         config_path.write_text("dummy")
 
@@ -421,8 +421,8 @@ class TestResolveKeyPathWithRealEnvironmentAndConfig:
         key_manager: KeyManager,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """TOTP_KEY_PATHが空文字列で、CLIもconfig.jsonも未指定の場合はKeyNotFoundErrorになることを確認する。"""
-        monkeypatch.setenv("TOTP_KEY_PATH", "")
+        """VTOTP_KEY_PATHが空文字列で、CLIもconfig.jsonも未指定の場合はKeyNotFoundErrorになることを確認する。"""
+        monkeypatch.setenv("VTOTP_KEY_PATH", "")
         with pytest.raises(KeyNotFoundError):
             key_manager.resolve_key_path(
                 cli_path=None,

@@ -145,7 +145,7 @@ class TestTamperDetection:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """ciphertextの1バイトを改ざんすると認証タグ検証に失敗しStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -161,7 +161,7 @@ class TestTamperDetection:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """nonceの1バイトを改ざんすると認証タグ検証に失敗しStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -182,7 +182,7 @@ class TestTamperDetection:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """認証タグ検証に失敗した場合、別の鍵での再試行を行わず例外を送出することを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -212,7 +212,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """JSONとして解析できないファイルがStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         target.write_text("{not valid json", encoding="utf-8")
         with pytest.raises(StorageCorruptedError):
             storage.load_secrets(target, key)
@@ -221,7 +221,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """JSONのトップレベルがオブジェクトでない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         target.write_text("[]", encoding="utf-8")
         with pytest.raises(StorageCorruptedError):
             storage.load_secrets(target, key)
@@ -233,7 +233,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes, missing_field: str
     ) -> None:
         """必須フィールドが欠落したファイルがStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         del document[missing_field]
@@ -246,7 +246,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """nonceが正しいBase64でない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         document["nonce"] = "not-valid-base64!!"
@@ -259,7 +259,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """復号後のJSONにservicesが無い場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         encrypted = storage.encrypt(b'{"version": 1}', key)
         _write_encrypted_file(target, encrypted)
 
@@ -270,7 +270,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """復号後のサービスエントリにsecretが無い場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         plaintext = json.dumps(
             {"version": 1, "services": {"github": {"issuer": "GitHub"}}}
         ).encode("utf-8")
@@ -284,7 +284,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """サービスエントリがオブジェクトでない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         plaintext = json.dumps(
             {"version": 1, "services": {"github": "not-an-object"}}
         ).encode("utf-8")
@@ -298,7 +298,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """issuerが文字列でない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         plaintext = json.dumps(
             {
                 "version": 1,
@@ -315,7 +315,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """復号は成功してもJSONとして解析できない平文の場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         encrypted = storage.encrypt(b"this is not json at all", key)
         _write_encrypted_file(target, encrypted)
 
@@ -326,7 +326,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """復号後の平文がJSONオブジェクトでない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         encrypted = storage.encrypt(b"[1, 2, 3]", key)
         _write_encrypted_file(target, encrypted)
 
@@ -337,7 +337,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """復号後の平文JSONのversionが未対応の場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         plaintext = json.dumps({"version": 2, "services": {}}).encode("utf-8")
         encrypted = storage.encrypt(plaintext, key)
         _write_encrypted_file(target, encrypted)
@@ -350,7 +350,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes, field: str
     ) -> None:
         """暗号化ファイルのversion/algorithmが期待する型でない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         document[field] = ["wrong-type"]
@@ -364,7 +364,7 @@ class TestInvalidFileFormat:
         self, storage: SecureStorage, tmp_path: Path, key: bytes, field: str
     ) -> None:
         """暗号化ファイルのnonce/ciphertextが文字列でない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         document[field] = 12345
@@ -382,7 +382,7 @@ class TestCryptoBoundaryValues:
         self, storage: SecureStorage, tmp_path: Path, key: bytes, nonce_length: int
     ) -> None:
         """Base64デコード後のnonceが12バイトでない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         document["nonce"] = base64.b64encode(os.urandom(nonce_length)).decode("ascii")
@@ -396,7 +396,7 @@ class TestCryptoBoundaryValues:
         self, storage: SecureStorage, tmp_path: Path, key: bytes, ciphertext_length: int
     ) -> None:
         """ciphertextが認証タグ長（16バイト）未満の場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         document["ciphertext"] = base64.b64encode(os.urandom(ciphertext_length)).decode(
@@ -411,7 +411,7 @@ class TestCryptoBoundaryValues:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """1,000件規模のサービスレコードでも保存・復号のラウンドトリップが正しく行われることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         records = {
             f"service-{index:04d}": SecretRecord(
                 service_name=f"service-{index:04d}",
@@ -439,7 +439,7 @@ class TestSaveAndLoadSecretsRoundTrip:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """保存したサービス情報が読み込み後も完全に一致することを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         loaded = storage.load_secrets(target, key)
         assert loaded == sample_records
@@ -448,7 +448,7 @@ class TestSaveAndLoadSecretsRoundTrip:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """initializeが空のサービス情報を持つ読み込み可能なファイルを作成することを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.initialize(target, key)
         assert storage.load_secrets(target, key) == {}
 
@@ -460,7 +460,7 @@ class TestSaveAndLoadSecretsRoundTrip:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """保存先の親ディレクトリが存在しない場合でも自動作成されることを確認する。"""
-        target = tmp_path / "nested" / "vault" / "totp-secrets.enc"
+        target = tmp_path / "nested" / "vault" / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         assert storage.load_secrets(target, key) == sample_records
 
@@ -468,7 +468,7 @@ class TestSaveAndLoadSecretsRoundTrip:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """保存されたファイルがDESIGN.md記載のペイロード形式に一致することを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
         document = json.loads(target.read_text(encoding="utf-8"))
         assert document.keys() == {"version", "algorithm", "nonce", "ciphertext"}
@@ -488,7 +488,7 @@ class TestInitializeErrorHandling:
         self, storage: SecureStorage, tmp_path: Path, invalid_key: bytes
     ) -> None:
         """32バイトでない鍵の場合にInvalidKeyErrorが送出され、ファイルが作成されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         with pytest.raises(InvalidKeyError):
             storage.initialize(target, invalid_key)
         assert not target.exists()
@@ -502,7 +502,7 @@ class TestInitializeErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """保存先ディレクトリの作成に失敗した場合、PermissionErrorが伝播しファイルが残らないことを確認する。"""
-        target = tmp_path / "vault" / "totp-secrets.enc"
+        target = tmp_path / "vault" / "vtotp-secrets.enc"
 
         def _raise_permission_error(
             self: Path, *args: object, **kwargs: object
@@ -524,7 +524,7 @@ class TestInitializeErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """一時ファイルの作成に失敗した場合、PermissionErrorが伝播し一時ファイルが残らないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
 
         def _raise_permission_error(*args: object, **kwargs: object) -> tuple[int, str]:
             raise PermissionError("permission denied")
@@ -539,7 +539,7 @@ class TestInitializeErrorHandling:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """initialize直後のファイルがDESIGN.md記載のペイロードスキーマに厳密に一致することを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.initialize(target, key)
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -571,7 +571,7 @@ class TestAtomicWriteBehavior:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """保存成功後、一時ファイルがディレクトリに残らないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         assert list(tmp_path.iterdir()) == [target]
 
@@ -584,7 +584,7 @@ class TestAtomicWriteBehavior:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """os.replaceが失敗した場合、既存の暗号化データファイルが破壊されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -609,7 +609,7 @@ class TestAtomicWriteBehavior:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """一時ファイル書き込み中に失敗した場合でも一時ファイルが残らないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
 
         def _raise_os_error(*args: object, **kwargs: object) -> None:
             raise OSError("simulated fsync failure")
@@ -633,7 +633,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """rekey後、新鍵でサービス情報が正しく読み込めることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         storage.rekey(target, key, other_key)
@@ -649,7 +649,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """rekey後は旧鍵での復号がStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         storage.rekey(target, key, other_key)
@@ -666,7 +666,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """暗号化済みシークレットデータには`.1`等のローテーション用バックアップを作成しないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         storage.rekey(target, key, other_key)
@@ -683,7 +683,7 @@ class TestRekey:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """再暗号化後の検証に失敗した場合、既存の暗号化データファイルを変更せず一時ファイルも残さないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -707,7 +707,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """検証用に復号した内容が期待するサービス情報と一致しない場合にStorageCorruptedErrorになることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, other_key, sample_records)
 
         mismatched_expectation = {
@@ -731,7 +731,7 @@ class TestRekey:
         invalid_key: bytes,
     ) -> None:
         """old_keyが32バイトでない場合にInvalidKeyErrorが送出され、既存ファイルが変更されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -753,7 +753,7 @@ class TestRekey:
         invalid_key: bytes,
     ) -> None:
         """new_keyが32バイトでない場合にInvalidKeyErrorが送出され、既存ファイルが変更されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -772,7 +772,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """改ざんされた暗号化ファイルへのrekeyがStorageCorruptedErrorになり、ファイルを変更しないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -809,7 +809,7 @@ class TestRekey:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """鍵長は正しいが復号できないold_keyを渡した場合、StorageCorruptedErrorになり既存ファイルが変更されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -830,7 +830,7 @@ class TestRekey:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """rekey中にos.replaceが失敗した場合、一時ファイルが残らず元データが保持されることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 
@@ -858,7 +858,7 @@ class TestZeroLeakageRule:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """改ざん検知の例外メッセージにシークレットの値が含まれないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         document = json.loads(target.read_text(encoding="utf-8"))
@@ -879,7 +879,7 @@ class TestZeroLeakageRule:
         self, storage: SecureStorage, tmp_path: Path, key: bytes
     ) -> None:
         """不正フォーマット検知の例外メッセージに鍵バイト列が含まれないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         target.write_text("{not valid json", encoding="utf-8")
 
         with pytest.raises(StorageCorruptedError) as excinfo:
@@ -895,7 +895,7 @@ class TestZeroLeakageRule:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """load_secretsで取得したSecretRecordの文字列表現がシークレットを含まないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
 
         loaded = storage.load_secrets(target, key)
@@ -911,7 +911,7 @@ class TestZeroLeakageRule:
         sample_records: dict[str, SecretRecord],
     ) -> None:
         """暗号化ファイルの内容に平文のシークレット文字列がそのまま含まれないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         raw_content = target.read_text(encoding="utf-8")
         assert "JBSWY3DPEHPK3PXP" not in raw_content
@@ -929,7 +929,7 @@ class TestFileIOErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """読み込み時にPermissionErrorが発生した場合、StorageCorruptedErrorへ安全に変換されることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
 
         def _raise_permission_error(self: Path, *args: object, **kwargs: object) -> str:
@@ -948,7 +948,7 @@ class TestFileIOErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """読み込み時に一般的なOSErrorが発生した場合もStorageCorruptedErrorへ変換されることを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, {})
 
         def _raise_os_error(self: Path, *args: object, **kwargs: object) -> str:
@@ -966,7 +966,7 @@ class TestFileIOErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """保存先ディレクトリ作成時のPermissionErrorが伝播し、ファイルが作成されないことを確認する。"""
-        target = tmp_path / "vault" / "totp-secrets.enc"
+        target = tmp_path / "vault" / "vtotp-secrets.enc"
 
         def _raise_permission_error(
             self: Path, *args: object, **kwargs: object
@@ -988,7 +988,7 @@ class TestFileIOErrorHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """一時ファイル作成時にPermissionErrorが発生しても、既存ファイルが破壊されないことを確認する。"""
-        target = tmp_path / "totp-secrets.enc"
+        target = tmp_path / "vtotp-secrets.enc"
         storage.save_secrets(target, key, sample_records)
         original_bytes = target.read_bytes()
 

@@ -32,14 +32,14 @@
 2. **鍵パスの動的指定・解決優先順位 (`-k` / `--key`)**
    * 復号鍵（`master.key`）の保存先は、以下の優先順位に従って決定する。
      1. コマンドライン引数 (`-k` / `--key PATH`)
-     2. 環境変数 (`TOTP_KEY_PATH`)
-     3. 設定ファイル (`~/.totp-cli/config.json` 内の `key_path`)
+     2. 環境変数 (`VTOTP_KEY_PATH`)
+     3. 設定ファイル (`~/.vtotp/config.json` 内の `key_path`)
 
 3. **暗号化ストレージの動的指定・解決優先順位 (`--storage`)**
    * 暗号化データファイル（JSON）の保存先は、以下の優先順位に従って決定する。
      1. コマンドライン引数 (`--storage PATH`)
-     2. 設定ファイル (`~/.totp-cli/config.json` 内の `storage_path`)
-     3. 既定パス (`config.json` と同一ディレクトリの `totp-secrets.enc`)
+     2. 設定ファイル (`~/.vtotp/config.json` 内の `storage_path`)
+     3. 既定パス (`config.json` と同一ディレクトリの `vtotp-secrets.enc`)
 
 4. **複数サービス（マルチアカウント）管理**
    * 複数の TOTP シークレットを 1 つの暗号化ストレージで安全に保持・管理する。

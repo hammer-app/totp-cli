@@ -114,7 +114,7 @@ class KeyManager:
 
         優先順位:
             1. CLIオプション `--key`
-            2. 環境変数 `TOTP_KEY_PATH`
+            2. 環境変数 `VTOTP_KEY_PATH`
             3. `config.json` の `key_path`
             4. いずれも未指定の場合はエラー
         """
@@ -126,7 +126,7 @@ class KeyManager:
             return config_path
         raise KeyNotFoundError(
             "鍵ファイルのパスが指定されていません"
-            "（--key、TOTP_KEY_PATH、config.jsonのいずれにも指定がありません）"
+            "（--key、VTOTP_KEY_PATH、config.jsonのいずれにも指定がありません）"
         )
 
     def validate_key_file(self, path: Path) -> None:

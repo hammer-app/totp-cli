@@ -168,7 +168,7 @@ class TestInitCommand:
         saved_config = json.loads(config_path.read_text(encoding="utf-8"))
         assert saved_config["key_path"] == str(key_path)
 
-        storage_path = config_path.parent / "totp-secrets.enc"
+        storage_path = config_path.parent / "vtotp-secrets.enc"
         assert storage_path.is_file()
         # 暗号化ストレージファイルがDESIGN.md記載のペイロード形式で作成されていることも確認する。
         storage_document = json.loads(storage_path.read_text(encoding="utf-8"))
@@ -699,7 +699,7 @@ class TestGenerateCommand:
         self._add_github(handler_factory, key_path)
 
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        storage_path = config_path.parent / "totp-secrets.enc"
+        storage_path = config_path.parent / "vtotp-secrets.enc"
         document = json.loads(storage_path.read_text(encoding="utf-8"))
         ciphertext = bytearray(base64.b64decode(document["ciphertext"]))
         ciphertext[0] ^= 0xFF
@@ -1329,7 +1329,7 @@ class TestConfigFileHandling:
         stdout: io.StringIO,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """--key未指定でもTOTP_KEY_PATH環境変数の鍵パスが使われ、コマンドが正常動作することを確認する。
+        """--key未指定でもVTOTP_KEY_PATH環境変数の鍵パスが使われ、コマンドが正常動作することを確認する。
 
         config.jsonにはkey_pathを一切保存せず、環境変数のみから鍵パスが
         解決されることを明確に示すため、config.json自体を作成しない。
@@ -1361,7 +1361,7 @@ class TestConfigFileHandling:
         stdout: io.StringIO,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """CLIの`-k`/`--key`がTOTP_KEY_PATH環境変数より優先されることを確認する。
+        """CLIの`-k`/`--key`がVTOTP_KEY_PATH環境変数より優先されることを確認する。
 
         環境変数側の鍵で暗号化されたストレージは`--storage`で指定しない
         ため、もしCLI指定が無視され環境変数の鍵が使われてしまった場合は
@@ -1403,7 +1403,7 @@ class TestConfigFileHandling:
         stdout: io.StringIO,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """TOTP_KEY_PATH環境変数がconfig.jsonのkey_pathより優先されることを確認する。
+        """VTOTP_KEY_PATH環境変数がconfig.jsonのkey_pathより優先されることを確認する。
 
         config.json側の鍵で暗号化されたストレージは`--storage`で指定しない
         ため、もし環境変数が無視されconfig.jsonの鍵が使われてしまった場合は

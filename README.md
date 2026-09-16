@@ -35,9 +35,9 @@ Windows 環境での実用性と堅牢性を重視して設計された、高セ
 
 ### 方法 A: スタンドアロン実行ファイル（vtotp.exe、Python 不要）
 
-Windows 向けに、Python 環境なしでそのまま実行できる単体バイナリ `vtotp.exe` を [GitHub Releases](https://github.com/hammer-app/vtotp/releases) で配布しています。
+Windows 向けに、Python 環境なしでそのまま実行できる単体バイナリ `vtotp.exe` を [GitHub Releases](https://github.com/hammer-app/vtotp-cli/releases) で配布しています。
 
-1. [Releases ページ](https://github.com/hammer-app/vtotp/releases) を開き、最新リリースのアセットから `vtotp.exe` をダウンロードします。
+1. [Releases ページ](https://github.com/hammer-app/vtotp-cli/releases) を開き、最新リリースのアセットから `vtotp.exe` をダウンロードします。
 2. 任意のフォルダ（例: `C:\Tools\vtotp\`）に配置します。
 3. そのフォルダに `PATH` を通しておくと、どこからでも `vtotp` コマンドとして実行できます（`PATH` を通さない場合は `.\vtotp.exe` のようにフルパス／相対パスで実行してください）。
 
@@ -58,8 +58,8 @@ pip や仮想環境のセットアップは不要です。以降のクイック�
 
 ```powershell
 # リポジトリのクローン
-git clone https://github.com/hammer-app/vtotp.git
-cd vtotp
+git clone https://github.com/hammer-app/vtotp-cli.git
+cd vtotp-cli
 
 # 仮想環境の作成と有効化
 python -m venv .venv
@@ -173,10 +173,10 @@ vtotp rekey
 マスターキーの参照先は以下の優先順位で自動解決されます。
 
 1. コマンドライン引数（`-k PATH` または `--key PATH`）
-2. 環境変数 `TOTP_KEY_PATH`
-3. 初期化時に保存された設定ファイル（`~/.totp-cli/config.json`）
+2. 環境変数 `VTOTP_KEY_PATH`
+3. 初期化時に保存された設定ファイル（`~/.vtotp/config.json`）
 
-暗号化データファイルの参照先は `--storage PATH` で一時的に上書きできます（`config.json` には保存されません）。指定が無い場合は `config.json` の `storage_path`、それも無い場合は `config.json` と同じディレクトリの `totp-secrets.enc` が既定値として使用されます。
+暗号化データファイルの参照先は `--storage PATH` で一時的に上書きできます（`config.json` には保存されません）。指定が無い場合は `config.json` の `storage_path`、それも無い場合は `config.json` と同じディレクトリの `vtotp-secrets.enc` が既定値として使用されます。
 
 現在の設定状況は以下のコマンドで確認できます。
 

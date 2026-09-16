@@ -180,16 +180,16 @@ class TestAppConfig:
         """key_pathとstorage_pathがPathとして格納されることを確認する。"""
         config = AppConfig(
             key_path=Path("C:/keys/master.key"),
-            storage_path=Path("C:/data/totp-secrets.enc"),
+            storage_path=Path("C:/data/vtotp-secrets.enc"),
         )
         assert config.key_path == Path("C:/keys/master.key")
-        assert config.storage_path == Path("C:/data/totp-secrets.enc")
+        assert config.storage_path == Path("C:/data/vtotp-secrets.enc")
 
     def test_instance_is_immutable(self) -> None:
         """フィールドへの再代入がFrozenInstanceErrorを送出することを確認する。"""
         config = AppConfig(
             key_path=Path("master.key"),
-            storage_path=Path("totp-secrets.enc"),
+            storage_path=Path("vtotp-secrets.enc"),
         )
         with pytest.raises(FrozenInstanceError):
             config.key_path = Path("other.key")  # type: ignore[misc]
@@ -198,11 +198,11 @@ class TestAppConfig:
         """AppConfigは鍵の内容を保持しないため、文字列表現にはパスのみが含まれることを確認する。"""
         config = AppConfig(
             key_path=Path("master.key"),
-            storage_path=Path("totp-secrets.enc"),
+            storage_path=Path("vtotp-secrets.enc"),
         )
         representation = repr(config)
         assert "master.key" in representation
-        assert "totp-secrets.enc" in representation
+        assert "vtotp-secrets.enc" in representation
 
 
 class TestEncryptedPayload:

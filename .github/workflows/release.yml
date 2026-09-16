@@ -24,12 +24,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e .
-          pip install pyinstaller==6.22.3
+          pip install -e ".[build]"
 
-      - name: Build vtotp.exe with PyInstaller
+      - name: Build vtotp.exe with Nuitka
         run: |
-          pyinstaller --onefile --name vtotp --clean --console --noconfirm --paths src src/vtotp/__main__.py
+          python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist --output-filename=vtotp --include-package=vtotp --include-package=cryptography src/vtotp/__main__.py
 
       - name: Verify vtotp.exe (--version)
         run: dist\vtotp.exe --version

@@ -1,10 +1,10 @@
-"""totp_cli.__main__（`python -m totp_cli` エントリーポイント）の単体テスト。"""
+"""vtotp.__main__（`python -m vtotp` エントリーポイント）の単体テスト。"""
 
 from __future__ import annotations
 
 import pytest
 
-from totp_cli.__main__ import main
+from vtotp.__main__ import main
 
 
 class TestMain:
@@ -18,7 +18,7 @@ class TestMain:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """argv省略時にsys.argvが使用されることを確認する。"""
-        monkeypatch.setattr("sys.argv", ["totp-cli", "--version"])
+        monkeypatch.setattr("sys.argv", ["vtotp", "--version"])
         assert main() == 0
 
     def test_parse_error_returns_exit_code_2(self) -> None:

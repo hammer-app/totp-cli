@@ -1,10 +1,10 @@
-"""``python -m totp_cli`` で起動するためのエントリーポイント。"""
+"""``python -m vtotp`` で起動するためのエントリーポイント。"""
 
 from __future__ import annotations
 
 import sys
 
-from totp_cli.cli.handler import CliHandler
+from vtotp.cli.handler import CliHandler
 
 
 def _reconfigure_stdio_utf8() -> None:

@@ -19,8 +19,8 @@ from typing import Any
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from totp_cli.domain.exceptions import InvalidKeyError, StorageCorruptedError
-from totp_cli.domain.models import EncryptedPayload, SecretRecord
+from vtotp.domain.exceptions import InvalidKeyError, StorageCorruptedError
+from vtotp.domain.models import EncryptedPayload, SecretRecord
 
 
 class SecureStorage:

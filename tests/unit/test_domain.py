@@ -1,4 +1,4 @@
-"""totp_cli.domain パッケージ（例外階層・ドメインモデル）の単体テスト。"""
+"""vtotp.domain パッケージ（例外階層・ドメインモデル）の単体テスト。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from totp_cli.domain import (
+from vtotp.domain import (
     AppConfig,
     CancelledError,
     CommandParseError,
@@ -180,16 +180,16 @@ class TestAppConfig:
         """key_pathとstorage_pathがPathとして格納されることを確認する。"""
         config = AppConfig(
             key_path=Path("C:/keys/master.key"),
-            storage_path=Path("C:/data/totp-secrets.enc"),
+            storage_path=Path("C:/data/vtotp-secrets.enc"),
         )
         assert config.key_path == Path("C:/keys/master.key")
-        assert config.storage_path == Path("C:/data/totp-secrets.enc")
+        assert config.storage_path == Path("C:/data/vtotp-secrets.enc")
 
     def test_instance_is_immutable(self) -> None:
         """フィールドへの再代入がFrozenInstanceErrorを送出することを確認する。"""
         config = AppConfig(
             key_path=Path("master.key"),
-            storage_path=Path("totp-secrets.enc"),
+            storage_path=Path("vtotp-secrets.enc"),
         )
         with pytest.raises(FrozenInstanceError):
             config.key_path = Path("other.key")  # type: ignore[misc]
@@ -198,11 +198,11 @@ class TestAppConfig:
         """AppConfigは鍵の内容を保持しないため、文字列表現にはパスのみが含まれることを確認する。"""
         config = AppConfig(
             key_path=Path("master.key"),
-            storage_path=Path("totp-secrets.enc"),
+            storage_path=Path("vtotp-secrets.enc"),
         )
         representation = repr(config)
         assert "master.key" in representation
-        assert "totp-secrets.enc" in representation
+        assert "vtotp-secrets.enc" in representation
 
 
 class TestEncryptedPayload:
@@ -250,11 +250,11 @@ class TestEncryptedPayload:
 
 
 class TestDomainPackageExports:
-    """totp_cli.domain パッケージの公開インターフェースに関するテスト。"""
+    """vtotp.domain パッケージの公開インターフェースに関するテスト。"""
 
     def test_all_expected_symbols_are_exported(self) -> None:
         """__all__に定義された全シンボルがdomainパッケージ直下から参照できることを確認する。"""
-        import totp_cli.domain as domain_package
+        import vtotp.domain as domain_package
 
         expected_symbols = {
             "TotpCliError",

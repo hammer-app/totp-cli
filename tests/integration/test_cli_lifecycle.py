@@ -1,10 +1,10 @@
 """CLIコマンドのフルライフサイクルに関するE2E/統合テスト。
 
-`python -m totp_cli` を実際にサブプロセスとして起動し、実運用の利用者に
+`python -m vtotp` を実際にサブプロセスとして起動し、実運用の利用者に
 近い形で一連のコマンド（``init``/``add``/``list``/``generate``/``rekey``/
 ``remove``）とエラー経路・終了コードを検証する。``HOME``/``USERPROFILE``
 をテストごとに隔離したディレクトリへ差し替えることで、``CliHandler``が
-既定で参照する ``~/.totp-cli`` を一切変更しない。
+既定で参照する ``~/.vtotp`` を一切変更しない。
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ def _run_cli(
     home_dir: Path,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """``python -m totp_cli`` をサブプロセスとして実行し、結果を返す。
+    """``python -m vtotp`` をサブプロセスとして実行し、結果を返す。
 
     ``HOME``/``USERPROFILE`` を ``home_dir`` へ差し替えることで、
-    ``CliHandler`` が既定で使用する ``Path.home() / ".totp-cli"``
+    ``CliHandler`` が既定で使用する ``Path.home() / ".vtotp"``
     （config.json・暗号化ストレージの既定配置先）を隔離し、実際の
     ユーザーのホームディレクトリを一切変更しないようにする。
 
@@ -45,12 +45,12 @@ def _run_cli(
     env = os.environ.copy()
     env["HOME"] = str(home_dir)
     env["USERPROFILE"] = str(home_dir)
-    env.pop("TOTP_KEY_PATH", None)
+    env.pop("VTOTP_KEY_PATH", None)
     if extra_env:
         env.update(extra_env)
 
     return subprocess.run(
-        [sys.executable, "-m", "totp_cli", *args],
+        [sys.executable, "-m", "vtotp", *args],
         cwd=home_dir,
         env=env,
         capture_output=True,
@@ -90,8 +90,8 @@ class TestFullLifecycle:
         assert key_path.is_file()
         assert len(key_path.read_bytes()) == 32
 
-        config_path = home_dir / ".totp-cli" / "config.json"
-        storage_path = home_dir / ".totp-cli" / "totp-secrets.enc"
+        config_path = home_dir / ".vtotp" / "config.json"
+        storage_path = home_dir / ".vtotp" / "vtotp-secrets.enc"
         assert config_path.is_file()
         assert storage_path.is_file()
 
@@ -182,7 +182,7 @@ class TestFullLifecycle:
 
 
 class TestArgumentAndEnvironmentIntegration:
-    """`-k`/`--key`とTOTP_KEY_PATH環境変数の統合シナリオに関するテスト。"""
+    """`-k`/`--key`とVTOTP_KEY_PATH環境変数の統合シナリオに関するテスト。"""
 
     def test_short_key_option_works_across_the_command_sequence(
         self, home_dir: Path, tmp_path: Path
@@ -229,13 +229,13 @@ class TestArgumentAndEnvironmentIntegration:
     def test_totp_key_path_environment_variable_drives_full_sequence(
         self, home_dir: Path, tmp_path: Path
     ) -> None:
-        """TOTP_KEY_PATH環境変数を設定した状態で、`--key`省略のまま一連のコマンドが動作することを確認する。"""
+        """VTOTP_KEY_PATH環境変数を設定した状態で、`--key`省略のまま一連のコマンドが動作することを確認する。"""
         key_path = tmp_path / "env-master.key"
 
         # initはconfig.jsonのkey_pathも更新するため、初回のみ--keyで明示する。
         assert _run_cli(["init", "--key", str(key_path)], home_dir).returncode == 0
 
-        env_override = {"TOTP_KEY_PATH": str(key_path)}
+        env_override = {"VTOTP_KEY_PATH": str(key_path)}
 
         result = _run_cli(
             ["add", "github", "--secret", _GITHUB_SECRET],
@@ -317,7 +317,7 @@ class TestErrorHandlingExitCodes:
             == 0
         )
 
-        storage_path = home_dir / ".totp-cli" / "totp-secrets.enc"
+        storage_path = home_dir / ".vtotp" / "vtotp-secrets.enc"
         document = json.loads(storage_path.read_text(encoding="utf-8"))
         ciphertext = bytearray(base64.b64decode(document["ciphertext"]))
         ciphertext[0] ^= 0xFF

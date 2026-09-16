@@ -1,4 +1,4 @@
-# 要件定義書: Custom CLI TOTP Authenticator (`totp-cli`)
+# 要件定義書: Custom CLI TOTP Authenticator (`vtotp`)
 
 ## 1. 概要 (Overview)
 
@@ -24,22 +24,22 @@
 
 1. **TOTPコード生成・表示 (`generate` / `get` / `-g`)**
    * サービス名を受け取り、対応する 6 桁の TOTP コードを出力する。
-   * **基本形:** `totp generate <service>` / `totp get <service>` / `totp -g <service>`
-   * **省略形:** `totp <service>`
+   * **基本形:** `vtotp generate <service>` / `vtotp get <service>` / `vtotp -g <service>`
+   * **省略形:** `vtotp <service>`
      * 第一引数が予約済みサブコマンドと一致しない場合は自動的に `generate` として処理する。
      * サブコマンドと同名のサービス名（例: `init`）を呼び出す場合は明示的にサブコマンド（`get` / `generate`）を付与する。
 
 2. **鍵パスの動的指定・解決優先順位 (`-k` / `--key`)**
    * 復号鍵（`master.key`）の保存先は、以下の優先順位に従って決定する。
      1. コマンドライン引数 (`-k` / `--key PATH`)
-     2. 環境変数 (`TOTP_KEY_PATH`)
-     3. 設定ファイル (`~/.totp-cli/config.json` 内の `key_path`)
+     2. 環境変数 (`VTOTP_KEY_PATH`)
+     3. 設定ファイル (`~/.vtotp/config.json` 内の `key_path`)
 
 3. **暗号化ストレージの動的指定・解決優先順位 (`--storage`)**
    * 暗号化データファイル（JSON）の保存先は、以下の優先順位に従って決定する。
      1. コマンドライン引数 (`--storage PATH`)
-     2. 設定ファイル (`~/.totp-cli/config.json` 内の `storage_path`)
-     3. 既定パス (`config.json` と同一ディレクトリの `totp-secrets.enc`)
+     2. 設定ファイル (`~/.vtotp/config.json` 内の `storage_path`)
+     3. 既定パス (`config.json` と同一ディレクトリの `vtotp-secrets.enc`)
 
 4. **複数サービス（マルチアカウント）管理**
    * 複数の TOTP シークレットを 1 つの暗号化ストレージで安全に保持・管理する。
@@ -106,31 +106,31 @@
 
 ```powershell
 # 1. 初回初期化（対話入力または引数指定）
-$ totp init
-$ totp init -k "C:\Users\...\Personal Vault\master.key"
+$ vtotp init
+$ vtotp init -k "C:\Users\...\Personal Vault\master.key"
 
 # 2. サービス追加 (-s / --secret, --issuer)
-$ totp add github
-$ totp add aws -s "JBSWY3DPEHPK3PXP" --issuer Amazon
+$ vtotp add github
+$ vtotp add aws -s "JBSWY3DPEHPK3PXP" --issuer Amazon
 
 # 3. コード取得 (省略形・明示形・クリップボード連携)
-$ totp github
-$ totp generate github -k "E:\USB\master.key"
-$ totp github | Set-Clipboard
+$ vtotp github
+$ vtotp generate github -k "E:\USB\master.key"
+$ vtotp github | Set-Clipboard
 
 # 4. 一覧表示 (ls エイリアス)
-$ totp list
-$ totp ls
+$ vtotp list
+$ vtotp ls
 
 # 5. 削除 (rm エイリアス, -f / --force)
-$ totp remove github
-$ totp rm github -f
+$ vtotp remove github
+$ vtotp rm github -f
 
 # 6. 鍵更新
-$ totp rekey
+$ vtotp rekey
 
 # 7. 現在の設定確認
-$ totp config
+$ vtotp config
 ```
 
 ---

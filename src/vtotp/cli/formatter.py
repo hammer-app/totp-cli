@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 from typing import IO, Sequence
 
-from totp_cli.domain.models import SecretRecord
+from vtotp.domain.models import SecretRecord
 
 
 def write_code(code: str, stream: IO[str] | None = None) -> None:

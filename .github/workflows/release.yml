@@ -27,24 +27,24 @@ jobs:
           pip install -e .
           pip install pyinstaller==6.22.3
 
-      - name: Build totp.exe with PyInstaller
+      - name: Build vtotp.exe with PyInstaller
         run: |
-          pyinstaller --onefile --name totp --clean --console --noconfirm --paths src src/totp_cli/__main__.py
+          pyinstaller --onefile --name vtotp --clean --console --noconfirm --paths src src/vtotp/__main__.py
 
-      - name: Verify totp.exe (--version)
-        run: dist\totp.exe --version
+      - name: Verify vtotp.exe (--version)
+        run: dist\vtotp.exe --version
 
-      - name: Verify totp.exe (--help)
-        run: dist\totp.exe --help
+      - name: Verify vtotp.exe (--help)
+        run: dist\vtotp.exe --help
 
-      - name: Verify totp.exe (init smoke test)
-        run: dist\totp.exe init --key "$env:RUNNER_TEMP\totp-smoke-test.key"
+      - name: Verify vtotp.exe (init smoke test)
+        run: dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
 
-      - name: Upload totp.exe artifact
+      - name: Upload vtotp.exe artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: totp-exe
-          path: dist/totp.exe
+          name: vtotp-exe
+          path: dist/vtotp.exe
           if-no-files-found: error
 
   release:
@@ -53,15 +53,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download totp.exe artifact
+      - name: Download vtotp.exe artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: totp-exe
+          name: vtotp-exe
           path: dist
 
-      - name: Upload totp.exe to GitHub Release
+      - name: Upload vtotp.exe to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: dist/totp.exe
+          files: dist/vtotp.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

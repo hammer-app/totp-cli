@@ -52,8 +52,8 @@ jobs:
           if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
           if (-not (Test-Path $configPath)) { throw "config.json was not created" }
           if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
-          $configContent = Get-Content $configPath -Raw
-          if (-not ($configContent -match [regex]::Escape($keyPath))) { throw "config.json does not reference key file" }
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
           if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
 
       - name: Upload vtotp.exe artifact

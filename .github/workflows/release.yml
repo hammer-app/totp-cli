@@ -37,7 +37,16 @@ jobs:
         run: dist\vtotp.exe --help
 
       - name: Verify vtotp.exe (init smoke test)
-        run: dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+        shell: pwsh
+        run: |
+          $keyPath = "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+          $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { throw "vtotp init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
+          $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
+          if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
+          if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
 
       - name: Upload vtotp.exe artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

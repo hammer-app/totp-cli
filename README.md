@@ -19,6 +19,7 @@ Windows 環境での実用性と堅牢性を重視して設計された、高セ
 - **直感的な操作性**:
   - 頻繁に使うコード生成はサブコマンドを省略可能（`vtotp <service>` のみで即座に発行）。
   - 鍵の安全な世代交代（最大 3 世代までの自動バックアップ）をサポート。
+- **耐タンパー性の高いスタンドアロンバイナリ**: 配布用の `vtotp.exe` は、従来の Python バイトコード同梱方式ではなく **Nuitka による C 言語トランスパイル・ネイティブコンパイル方式** でビルドされています。ソースコードを C 言語相当の中間コードへ変換した上でネイティブ機械語へコンパイルするため、一般的な Python バイトコードデコンパイラによる復元が困難で、高い耐タンパー性・リバースエンジニアリング耐性（難読化）を備えています。
 
 ---
 
@@ -35,7 +36,7 @@ Windows 環境での実用性と堅牢性を重視して設計された、高セ
 
 ### 方法 A: スタンドアロン実行ファイル（vtotp.exe、Python 不要）
 
-Windows 向けに、Python 環境なしでそのまま実行できる単体バイナリ `vtotp.exe` を [GitHub Releases](https://github.com/hammer-app/vtotp-cli/releases) で配布しています。
+Windows 向けに、Python 環境なしでそのまま実行できる単体バイナリ `vtotp.exe` を [GitHub Releases](https://github.com/hammer-app/vtotp-cli/releases) で配布しています。この `vtotp.exe` は **Nuitka** により Python ソースを C 言語相当の中間コードへ変換し、ネイティブバイナリへコンパイルした成果物です。従来の PyInstaller のような Python バイトコード同梱方式とは異なり、逆コンパイルによるソース復元が困難な、耐タンパー性・難読化を備えたスタンドアロンバイナリです。
 
 1. [Releases ページ](https://github.com/hammer-app/vtotp-cli/releases) を開き、最新リリースのアセットから `vtotp.exe` をダウンロードします。
 2. 任意のフォルダ（例: `C:\Tools\vtotp\`）に配置します。
@@ -224,7 +225,22 @@ python -m black --check src tests
 
 `flake8` はリポジトリルートの [`.flake8`](.flake8) 設定（`max-line-length = 88` / `extend-ignore = E203, W503`）に従って実行され、Black のフォーマット結果と競合しません。
 
-現時点での検証実績: **404 passed, 1 skipped**（Windows では `os.chmod` による権限剥奪を検証する1件のみ既定でスキップ）、カバレッジ **100%**。`flake8` / `mypy --strict` / `black --check` はいずれも警告ゼロです。
+現時点での検証実績: **407 passed, 1 skipped**（Windows では `os.chmod` による権限剥奪を検証する1件のみ既定でスキップ）、カバレッジ **100%**。`flake8` / `mypy --strict` / `black --check` はいずれも警告ゼロです。
+
+### バイナリビルド
+
+配布用のスタンドアロンバイナリ（`vtotp.exe`）は **Nuitka** でビルドします。
+
+```powershell
+# ビルド用依存パッケージ（nuitka, zstandard）を含めて編集可能モードでインストール
+pip install -e ".[build]"
+
+# Nuitka によるスタンドアロン・単一ファイルバイナリのビルド
+python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist --output-filename=vtotp --include-package=vtotp --include-package=cryptography src/vtotp/__main__.py
+
+```
+
+ビルドが完了すると Windows では `dist\vtotp.exe` が生成されます（Linux/macOS では `dist/vtotp`）。CI（`.github/workflows/release.yml`）ではタグ `v*` の push を起点に、同じコマンドでビルドした上で `--version` / `--help` / `init` のスモークテストを実行してから GitHub Release へ公開します。詳細なビルドパラメータの設計根拠は [`docs/DESIGN.md`](docs/DESIGN.md) の Section 18 を参照してください。
 
 ---
 

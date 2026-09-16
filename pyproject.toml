@@ -16,6 +16,10 @@ dependencies = [
 vtotp = "vtotp.__main__:main"
 
 [project.optional-dependencies]
+build = [
+    "nuitka>=2.6",
+    "zstandard>=0.23",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",

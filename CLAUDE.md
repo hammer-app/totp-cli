@@ -55,5 +55,5 @@ Refer to `@docs/REQUIREMENTS.md` for functional requirements and `@docs/DESIGN.m
 ### 5. Testing Requirements
 
 - Unit tests must be placed in `tests/unit/` and integration tests in `tests/integration/`.
-- Maintain >90% code coverage across core business logic (`core/`, `domain/`, `cli/`).
+- Maintain 100% code coverage across the entire codebase (`src/vtotp`).
 - Always run `pytest` and verify clean output before completing any task.

@@ -40,12 +40,20 @@ jobs:
         shell: pwsh
         run: |
           $keyPath = "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+          $configDir = Join-Path $env:USERPROFILE ".vtotp"
+          $configPath = Join-Path $configDir "config.json"
+          $storagePath = Join-Path $configDir "vtotp-secrets.enc"
+
           $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
           Write-Host $output
           if ($LASTEXITCODE -ne 0) { throw "vtotp init failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
           $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
           if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
+          if (-not (Test-Path $configPath)) { throw "config.json was not created" }
+          if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
+          $configContent = Get-Content $configPath -Raw
+          if (-not ($configContent -match [regex]::Escape($keyPath))) { throw "config.json does not reference key file" }
           if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
 
       - name: Upload vtotp.exe artifact

@@ -26,9 +26,22 @@ jobs:
         run: |
           pip install -e ".[build]"
 
+      - name: Resolve PE version metadata from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          $parts = @($version.Split('.'))
+          while ($parts.Length -lt 4) { $parts += "0" }
+          $peVersion = ($parts[0..3] -join '.')
+          Write-Host "Tag: $tag -> version: $version (PE version: $peVersion)"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "pe_version=$peVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Build vtotp.exe with Nuitka
         run: |
-          python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist --output-filename=vtotp --include-package=vtotp --include-package=cryptography src/vtotp/__main__.py
+          python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
 
       - name: Verify vtotp.exe (--version)
         run: dist\vtotp.exe --version
@@ -56,11 +69,47 @@ jobs:
           if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
           if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
 
+      - name: Verify vtotp.exe PE metadata
+        shell: pwsh
+        run: |
+          $info = (Get-Item dist\vtotp.exe).VersionInfo
+          Write-Host ($info | Format-List | Out-String)
+          if ($info.CompanyName -ne "vtotp Project") { throw "Unexpected CompanyName: $($info.CompanyName)" }
+          if ($info.ProductName -ne "vtotp CLI") { throw "Unexpected ProductName: $($info.ProductName)" }
+          if ($info.FileDescription -ne "Custom CLI TOTP Authenticator") { throw "Unexpected FileDescription: $($info.FileDescription)" }
+          if (-not $info.LegalCopyright -or $info.LegalCopyright -notmatch "vtotp Project") { throw "Unexpected LegalCopyright: $($info.LegalCopyright)" }
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          Get-FileHash dist\vtotp.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  vtotp.exe" } |
+            Set-Content -NoNewline dist\vtotp.exe.sha256
+          Get-Content dist\vtotp.exe.sha256
+
+      - name: Verify SHA-256 checksum
+        shell: pwsh
+        run: |
+          $line = Get-Content dist\vtotp.exe.sha256
+          $expected = $line.Split(' ')[0]
+          $actual = (Get-FileHash dist\vtotp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) {
+            throw "SHA-256 checksum mismatch: sidecar has $expected, recomputed $actual"
+          }
+          Write-Host "SHA-256 checksum verified: $actual"
+
       - name: Upload vtotp.exe artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vtotp-exe
           path: dist/vtotp.exe
+          if-no-files-found: error
+
+      - name: Upload vtotp.exe.sha256 artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vtotp-exe-sha256
+          path: dist/vtotp.exe.sha256
           if-no-files-found: error
 
   release:
@@ -75,9 +124,30 @@ jobs:
           name: vtotp-exe
           path: dist
 
+      - name: Download vtotp.exe.sha256 artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vtotp-exe-sha256
+          path: dist
+
+      - name: Verify downloaded artifacts before publishing
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist\vtotp.exe)) { throw "dist\vtotp.exe is missing" }
+          if (-not (Test-Path dist\vtotp.exe.sha256)) { throw "dist\vtotp.exe.sha256 is missing" }
+          $line = Get-Content dist\vtotp.exe.sha256
+          $expected = $line.Split(' ')[0]
+          $actual = (Get-FileHash dist\vtotp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) {
+            throw "SHA-256 checksum mismatch after artifact download: sidecar has $expected, recomputed $actual"
+          }
+          Write-Host "SHA-256 checksum re-verified after download: $actual"
+
       - name: Upload vtotp.exe to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: dist/vtotp.exe
+          files: |
+            dist/vtotp.exe
+            dist/vtotp.exe.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

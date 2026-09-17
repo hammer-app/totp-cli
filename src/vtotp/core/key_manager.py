@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from vtotp.domain.exceptions import InvalidKeyError, KeyNotFoundError
+from vtotp.i18n.catalog import MsgKey
 
 
 class KeyManager:
@@ -43,9 +44,7 @@ class KeyManager:
         """
         actual_key = key if key is not None else self.generate_key()
         if len(actual_key) != self.KEY_SIZE_BYTES:
-            raise InvalidKeyError(
-                f"鍵のサイズが不正です（{self.KEY_SIZE_BYTES}バイトである必要があります）: {path}"
-            )
+            raise InvalidKeyError(MsgKey.KEY_INVALID_SIZE, context={"path": str(path)})
         self._atomic_write_bytes(path, actual_key)
 
     def rotate_key_file(self, path: Path, new_key: bytes) -> Path:
@@ -96,12 +95,12 @@ class KeyManager:
         try:
             data = path.read_bytes()
         except OSError as exc:
-            raise InvalidKeyError(f"鍵ファイルを読み込めません: {path}") from exc
+            raise InvalidKeyError(
+                MsgKey.KEY_UNREADABLE, context={"path": str(path)}
+            ) from exc
 
         if len(data) != self.KEY_SIZE_BYTES:
-            raise InvalidKeyError(
-                f"鍵ファイルのサイズが不正です（{self.KEY_SIZE_BYTES}バイトである必要があります）: {path}"
-            )
+            raise InvalidKeyError(MsgKey.KEY_INVALID_SIZE, context={"path": str(path)})
         return data
 
     def resolve_key_path(
@@ -124,23 +123,20 @@ class KeyManager:
             return environment_path
         if config_path is not None:
             return config_path
-        raise KeyNotFoundError(
-            "鍵ファイルのパスが指定されていません"
-            "（--key、VTOTP_KEY_PATH、config.jsonのいずれにも指定がありません）"
-        )
+        raise KeyNotFoundError(MsgKey.KEY_PATH_NOT_CONFIGURED)
 
     def validate_key_file(self, path: Path) -> None:
         """存在、通常ファイル、サイズ、読み取り可否を検証する。"""
         if not path.exists():
-            raise KeyNotFoundError(f"鍵ファイルが見つかりません: {path}")
+            raise KeyNotFoundError(MsgKey.KEY_NOT_FOUND, context={"path": str(path)})
         if not path.is_file():
-            raise InvalidKeyError(f"鍵ファイルが通常のファイルではありません: {path}")
+            raise InvalidKeyError(MsgKey.KEY_NOT_A_FILE, context={"path": str(path)})
         if path.stat().st_size != self.KEY_SIZE_BYTES:
-            raise InvalidKeyError(
-                f"鍵ファイルのサイズが不正です（{self.KEY_SIZE_BYTES}バイトである必要があります）: {path}"
-            )
+            raise InvalidKeyError(MsgKey.KEY_INVALID_SIZE, context={"path": str(path)})
         if not os.access(path, os.R_OK):
-            raise InvalidKeyError(f"鍵ファイルを読み取る権限がありません: {path}")
+            raise InvalidKeyError(
+                MsgKey.KEY_PERMISSION_DENIED, context={"path": str(path)}
+            )
 
     def _atomic_write_bytes(self, path: Path, data: bytes) -> None:
         """一時ファイルへ書き込んだのち `os.replace` で正式パスへatomicに置換する。

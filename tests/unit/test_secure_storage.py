@@ -13,6 +13,7 @@ import pytest
 from vtotp.core.secure_storage import SecureStorage
 from vtotp.domain.exceptions import InvalidKeyError, StorageCorruptedError
 from vtotp.domain.models import EncryptedPayload, SecretRecord
+from vtotp.i18n.catalog import MsgKey
 
 
 @pytest.fixture
@@ -688,7 +689,7 @@ class TestRekey:
         original_bytes = target.read_bytes()
 
         def _fail_verification(*args: object, **kwargs: object) -> None:
-            raise StorageCorruptedError("再暗号化データの検証に失敗しました")
+            raise StorageCorruptedError(MsgKey.STORAGE_REKEY_VERIFICATION_FAILED)
 
         monkeypatch.setattr(storage, "_verify_prepared_rekey", _fail_verification)
 

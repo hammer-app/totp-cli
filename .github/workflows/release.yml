@@ -79,6 +79,23 @@ jobs:
           if ($info.FileDescription -ne "Custom CLI TOTP Authenticator") { throw "Unexpected FileDescription: $($info.FileDescription)" }
           if (-not $info.LegalCopyright -or $info.LegalCopyright -notmatch "vtotp Project") { throw "Unexpected LegalCopyright: $($info.LegalCopyright)" }
 
+          $expectedVersion = "${{ steps.version.outputs.pe_version }}"
+          $expectedParsed = [version]$expectedVersion
+
+          $fileVersionRaw = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
+          $fileVersionParsed = [version]$fileVersionRaw
+          if ($fileVersionParsed -ne $expectedParsed) {
+            throw "FileVersion mismatch: expected $expectedParsed (from tag), got $fileVersionParsed (raw: $($info.FileVersion))"
+          }
+
+          $productVersionRaw = "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart).$($info.ProductPrivatePart)"
+          $productVersionParsed = [version]$productVersionRaw
+          if ($productVersionParsed -ne $expectedParsed) {
+            throw "ProductVersion mismatch: expected $expectedParsed (from tag), got $productVersionParsed (raw: $($info.ProductVersion))"
+          }
+
+          Write-Host "FileVersion/ProductVersion verified against tag: $expectedParsed"
+
       - name: Generate SHA-256 checksum
         shell: pwsh
         run: |

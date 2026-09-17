@@ -31,6 +31,7 @@ def _run_cli(
     args: Sequence[str],
     home_dir: Path,
     extra_env: dict[str, str] | None = None,
+    force_lang: str | None = "en",
 ) -> subprocess.CompletedProcess[str]:
     """``python -m vtotp`` をサブプロセスとして実行し、結果を返す。
 
@@ -38,6 +39,15 @@ def _run_cli(
     ``CliHandler`` が既定で使用する ``Path.home() / ".vtotp"``
     （config.json・暗号化ストレージの既定配置先）を隔離し、実際の
     ユーザーのホームディレクトリを一切変更しないようにする。
+
+    ホストOSのロケール（日本語環境等）や既存の``VTOTP_LANG``/``LANG``/
+    ``LC_ALL``/``LC_MESSAGES``に依存して結果が揺れないよう、``LC_ALL``/
+    ``LC_MESSAGES``/``LANG``は常に除去し、``VTOTP_LANG``は既定で``"en"``に
+    固定する。日本語表示を検証したいテストは``extra_env={"VTOTP_LANG":
+    "ja"}``で明示的に上書きするか、``force_lang="ja"``を渡す。
+    ``config.json``に保存された``language``設定が（``VTOTP_LANG``無指定の
+    まま）実際に解決へ反映されることそのものを検証したい場合は
+    ``force_lang=None``を渡し、``VTOTP_LANG``を一切注入しない。
 
     プロンプトが誤って発生した場合にサブプロセスが無限に待機しないよう、
     標準入力には常に空文字列を渡す（即座にEOFとして扱われる）。
@@ -49,6 +59,8 @@ def _run_cli(
     env.pop("VTOTP_LANG", None)
     for locale_variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
         env.pop(locale_variable, None)
+    if force_lang is not None:
+        env["VTOTP_LANG"] = force_lang
     if extra_env:
         env.update(extra_env)
 
@@ -403,8 +415,13 @@ class TestI18nIntegration:
         assert result.returncode == 0, result.stderr
         assert "鍵ファイルを作成しました" in result.stderr
 
+        # `-l`もVTOTP_LANGも指定せず、config.jsonに保存された"ja"設定だけで
+        # 実際に日本語表示になることを検証するため、あえてforce_lang=Noneで
+        # 言語環境変数を注入しない（LC_ALL/LC_MESSAGES/LANGは通常どおり除去する）。
         result = _run_cli(
-            ["generate", "unknown-service", "--key", str(key_path)], home_dir
+            ["generate", "unknown-service", "--key", str(key_path)],
+            home_dir,
+            force_lang=None,
         )
         assert result.returncode == 5
         assert "エラー: サービスが見つかりません" in result.stderr
@@ -424,8 +441,12 @@ class TestI18nIntegration:
         saved = json.loads(config_path.read_text(encoding="utf-8"))
         assert saved["language"] == "ja"
 
+        # config.jsonの"ja"設定のみで解決されることを検証するため、
+        # ここでもVTOTP_LANGを注入しない。
         result = _run_cli(
-            ["generate", "unknown-service", "--key", str(key_path)], home_dir
+            ["generate", "unknown-service", "--key", str(key_path)],
+            home_dir,
+            force_lang=None,
         )
         assert result.returncode == 5
         assert "エラー" in result.stderr
@@ -435,5 +456,29 @@ class TestI18nIntegration:
     ) -> None:
         """実プロセス実行でも、サブコマンドより前に置かれたオプションが終了コード2で拒否されることを確認する。"""
         result = _run_cli(["-l", "ja", "list"], home_dir)
+        assert result.returncode == 2
+        assert "Traceback" not in result.stderr
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            ["--key", "PATH", "github"],
+            ["-l", "ja", "github"],
+        ],
+    )
+    def test_option_before_service_is_rejected_end_to_end(
+        self, home_dir: Path, tmp_path: Path, extra_args: list[str]
+    ) -> None:
+        """実プロセス実行でも、`SERVICE`より前に置かれたオプションが終了コード2で
+        拒否されることを確認する（DESIGN.md 20.1。`vtotp get --key PATH github`は
+        非サポートの明示例）。
+        """
+        key_path = tmp_path / "master.key"
+        assert _run_cli(["init", "--key", str(key_path)], home_dir).returncode == 0
+
+        resolved_args = [
+            str(key_path) if token == "PATH" else token for token in extra_args
+        ]
+        result = _run_cli(["get", *resolved_args], home_dir)
         assert result.returncode == 2
         assert "Traceback" not in result.stderr

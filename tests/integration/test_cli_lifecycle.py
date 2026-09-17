@@ -46,6 +46,9 @@ def _run_cli(
     env["HOME"] = str(home_dir)
     env["USERPROFILE"] = str(home_dir)
     env.pop("VTOTP_KEY_PATH", None)
+    env.pop("VTOTP_LANG", None)
+    for locale_variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        env.pop(locale_variable, None)
     if extra_env:
         env.update(extra_env)
 
@@ -350,3 +353,87 @@ class TestErrorHandlingExitCodes:
         assert result.returncode == 3
         assert result.stdout == ""
         assert result.stderr.strip() != ""
+
+
+class TestI18nIntegration:
+    """多言語化（`-l`/`--lang`、`VTOTP_LANG`、`init`/`config`の言語永続化）に関する統合テスト。"""
+
+    def test_lang_option_localizes_error_message_end_to_end(
+        self, home_dir: Path, tmp_path: Path
+    ) -> None:
+        """実プロセス実行で`-l ja`がエラーメッセージを日本語化することを確認する。"""
+        missing_key_path = tmp_path / "does-not-exist.key"
+        result = _run_cli(
+            ["generate", "github", "--key", str(missing_key_path), "-l", "ja"],
+            home_dir,
+        )
+        assert result.returncode == 3
+        assert "エラー: 鍵ファイルが見つかりません" in result.stderr
+
+    def test_default_language_is_english_without_any_override(
+        self, home_dir: Path, tmp_path: Path
+    ) -> None:
+        """CLI引数・環境変数・config.jsonのいずれも無い場合、既定で英語表示になることを確認する。"""
+        missing_key_path = tmp_path / "does-not-exist.key"
+        result = _run_cli(
+            ["generate", "github", "--key", str(missing_key_path)], home_dir
+        )
+        assert result.returncode == 3
+        assert "Error: Key file not found" in result.stderr
+
+    def test_env_variable_localizes_error_message_end_to_end(
+        self, home_dir: Path, tmp_path: Path
+    ) -> None:
+        """実プロセス実行でVTOTP_LANG環境変数がエラーメッセージを日本語化することを確認する。"""
+        missing_key_path = tmp_path / "does-not-exist.key"
+        result = _run_cli(
+            ["generate", "github", "--key", str(missing_key_path)],
+            home_dir,
+            extra_env={"VTOTP_LANG": "ja"},
+        )
+        assert result.returncode == 3
+        assert "エラー" in result.stderr
+
+    def test_init_persists_language_and_later_commands_use_it_without_lang_option(
+        self, home_dir: Path, tmp_path: Path
+    ) -> None:
+        """`init -l ja`後、以降のコマンドは`-l`を省略してもconfig.jsonの言語設定で日本語表示になることを確認する。"""
+        key_path = tmp_path / "master.key"
+        result = _run_cli(["init", "--key", str(key_path), "-l", "ja"], home_dir)
+        assert result.returncode == 0, result.stderr
+        assert "鍵ファイルを作成しました" in result.stderr
+
+        result = _run_cli(
+            ["generate", "unknown-service", "--key", str(key_path)], home_dir
+        )
+        assert result.returncode == 5
+        assert "エラー: サービスが見つかりません" in result.stderr
+
+    def test_config_set_language_updates_persisted_setting(
+        self, home_dir: Path, tmp_path: Path
+    ) -> None:
+        """`config set language ja`実行後、config.jsonのlanguageが更新されることを確認する。"""
+        key_path = tmp_path / "master.key"
+        assert _run_cli(["init", "--key", str(key_path)], home_dir).returncode == 0
+
+        result = _run_cli(["config", "set", "language", "ja"], home_dir)
+        assert result.returncode == 0, result.stderr
+        assert "言語を更新しました" in result.stdout
+
+        config_path = home_dir / ".vtotp" / "config.json"
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["language"] == "ja"
+
+        result = _run_cli(
+            ["generate", "unknown-service", "--key", str(key_path)], home_dir
+        )
+        assert result.returncode == 5
+        assert "エラー" in result.stderr
+
+    def test_leading_option_before_subcommand_is_rejected_end_to_end(
+        self, home_dir: Path
+    ) -> None:
+        """実プロセス実行でも、サブコマンドより前に置かれたオプションが終了コード2で拒否されることを確認する。"""
+        result = _run_cli(["-l", "ja", "list"], home_dir)
+        assert result.returncode == 2
+        assert "Traceback" not in result.stderr

@@ -7,7 +7,93 @@ import io
 import pytest
 
 from vtotp.cli import formatter
+from vtotp.domain.exceptions import KeyNotFoundError, StorageCorruptedError
 from vtotp.domain.models import SecretRecord
+from vtotp.i18n.catalog import MsgKey
+
+
+class TestFormatMessage:
+    """format_message に関するテスト。"""
+
+    def test_resolves_english_message_with_context(self) -> None:
+        """英語カタログのプレースホルダーがcontextで補間されることを確認する。"""
+        message = formatter.format_message(
+            MsgKey.KEY_NOT_FOUND, "en", path="C:/keys/master.key"
+        )
+        assert message == "Key file not found: C:/keys/master.key"
+
+    def test_resolves_japanese_message_with_context(self) -> None:
+        """日本語カタログのプレースホルダーがcontextで補間されることを確認する。"""
+        message = formatter.format_message(
+            MsgKey.KEY_NOT_FOUND, "ja", path="C:/keys/master.key"
+        )
+        assert message == "鍵ファイルが見つかりません: C:/keys/master.key"
+
+    def test_unknown_language_falls_back_to_english(self) -> None:
+        """未知の言語コードの場合、英語へフォールバックすることを確認する。"""
+        message = formatter.format_message(MsgKey.SECRET_EMPTY, "fr")
+        assert message == "TOTP secret is empty"
+
+
+class TestFormatError:
+    """format_error / write_error に関するテスト。"""
+
+    def test_includes_localized_label_and_body(self) -> None:
+        """エラー表示文にローカライズ済みラベルと本文が含まれることを確認する。"""
+        error = KeyNotFoundError(MsgKey.KEY_NOT_FOUND, context={"path": "k.key"})
+        assert formatter.format_error(error, "en") == "Error: Key file not found: k.key"
+        assert (
+            formatter.format_error(error, "ja")
+            == "エラー: 鍵ファイルが見つかりません: k.key"
+        )
+
+    def test_write_error_writes_to_given_stream(self) -> None:
+        """write_errorが注入したストリームへ書き込むことを確認する。"""
+        stream = io.StringIO()
+        error = StorageCorruptedError(MsgKey.STORAGE_DECRYPTION_FAILED)
+        formatter.write_error(error, "en", stream=stream)
+        expected_body = (
+            "Failed to verify the encrypted data "
+            "(it may be corrupted, tampered with, or the key may be incorrect)"
+        )
+        assert stream.getvalue() == f"Error: {expected_body}\n"
+
+    def test_write_error_does_not_leak_secret_when_caller_avoids_it(self) -> None:
+        """呼び出し元がcontextに秘密情報を含めない限り、write_errorの出力に秘密情報が現れないことを確認する。"""
+        stream = io.StringIO()
+        error = KeyNotFoundError(
+            MsgKey.KEY_NOT_FOUND, context={"path": "C:/keys/master.key"}
+        )
+        formatter.write_error(error, "en", stream=stream)
+        assert "JBSWY3DPEHPK3PXP" not in stream.getvalue()
+
+    def test_write_error_defaults_to_stderr(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """streamを省略した場合、標準エラー出力へ書き込まれることを確認する。"""
+        error = StorageCorruptedError(MsgKey.STORAGE_DECRYPTION_FAILED)
+        formatter.write_error(error, "en")
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Error:" in captured.err
+
+
+class TestFormatWarning:
+    """format_warning / write_warning に関するテスト。"""
+
+    def test_includes_localized_label_and_body(self) -> None:
+        """警告表示文にローカライズ済みラベルと本文が含まれることを確認する。"""
+        message = formatter.format_warning(
+            MsgKey.REKEY_ROTATION_LIMIT_NOTICE, "en", path="master.key.3"
+        )
+        assert message.startswith("Warning: ")
+        assert "master.key.3" in message
+
+    def test_write_warning_writes_to_given_stream(self) -> None:
+        """write_warningが注入したストリームへ書き込むことを確認する。"""
+        stream = io.StringIO()
+        formatter.write_warning(MsgKey.CANCELLED, "ja", stream=stream)
+        assert stream.getvalue() == "警告: ユーザーによって操作がキャンセルされました\n"
 
 
 class TestWriteCode:
@@ -32,29 +118,38 @@ class TestFormatServiceTable:
 
     def test_empty_records_produce_empty_string(self) -> None:
         """レコードが空の場合、空文字列を返すことを確認する。"""
-        assert formatter.format_service_table([]) == ""
+        assert formatter.format_service_table([], "en") == ""
 
-    def test_includes_header_and_all_service_names(self) -> None:
-        """ヘッダー行と全サービス名が出力に含まれることを確認する。"""
+    def test_includes_header_and_all_service_names_in_english(self) -> None:
+        """英語表示でヘッダー行と全サービス名が出力に含まれることを確認する。"""
         records = [
             SecretRecord(
                 service_name="github", secret="JBSWY3DPEHPK3PXP", issuer="GitHub"
             ),
             SecretRecord(service_name="aws", secret="KRSXG5CTMVRXEZLU", issuer=None),
         ]
-        table = formatter.format_service_table(records)
+        table = formatter.format_service_table(records, "en")
         assert "SERVICE" in table
         assert "ISSUER" in table
         assert "github" in table
         assert "aws" in table
         assert "GitHub" in table
 
+    def test_includes_localized_header_in_japanese(self) -> None:
+        """日本語表示でヘッダーがローカライズされることを確認する。"""
+        records = [
+            SecretRecord(service_name="github", secret="JBSWY3DPEHPK3PXP", issuer=None)
+        ]
+        table = formatter.format_service_table(records, "ja")
+        assert "サービス" in table
+        assert "発行者" in table
+
     def test_missing_issuer_is_rendered_as_placeholder(self) -> None:
         """issuerが無いレコードはプレースホルダー（`-`）で表示されることを確認する。"""
         records = [
             SecretRecord(service_name="aws", secret="KRSXG5CTMVRXEZLU", issuer=None)
         ]
-        table = formatter.format_service_table(records)
+        table = formatter.format_service_table(records, "en")
         lines = table.splitlines()
         assert lines[1].endswith("-")
 
@@ -65,13 +160,13 @@ class TestFormatServiceTable:
                 service_name="github", secret="JBSWY3DPEHPK3PXP", issuer="GitHub"
             ),
         ]
-        table = formatter.format_service_table(records)
+        table = formatter.format_service_table(records, "en")
         assert "JBSWY3DPEHPK3PXP" not in table
 
     def test_write_service_table_writes_nothing_for_empty_records(self) -> None:
         """レコードが空の場合、write_service_tableは何も出力しないことを確認する。"""
         stream = io.StringIO()
-        formatter.write_service_table([], stream)
+        formatter.write_service_table([], "en", stream)
         assert stream.getvalue() == ""
 
     def test_write_service_table_writes_table_to_stream(self) -> None:
@@ -82,7 +177,7 @@ class TestFormatServiceTable:
                 service_name="github", secret="JBSWY3DPEHPK3PXP", issuer="GitHub"
             )
         ]
-        formatter.write_service_table(records, stream)
+        formatter.write_service_table(records, "en", stream)
         assert "github" in stream.getvalue()
         assert "GitHub" in stream.getvalue()
 
@@ -135,29 +230,21 @@ class TestRemainingSecondsBar:
         assert "15s" in stream.getvalue()
 
 
-class TestInfoWarningError:
-    """write_info / write_warning / write_error に関するテスト。"""
+class TestWriteInfo:
+    """write_info に関するテスト。"""
 
-    def test_write_info_writes_message_as_is(self) -> None:
-        """write_infoがメッセージをそのまま出力することを確認する。"""
+    def test_writes_localized_message_as_is(self) -> None:
+        """write_infoがローカライズ済みメッセージをそのまま出力することを確認する。"""
         stream = io.StringIO()
-        formatter.write_info("案内メッセージ", stream)
-        assert stream.getvalue() == "案内メッセージ\n"
+        formatter.write_info(
+            MsgKey.ADD_SERVICE_REGISTERED, "en", stream=stream, service="github"
+        )
+        assert stream.getvalue() == "Service registered: github\n"
 
-    def test_write_warning_prefixes_message(self) -> None:
-        """write_warningが警告接頭辞付きでメッセージを出力することを確認する。"""
+    def test_writes_japanese_message(self) -> None:
+        """日本語指定時に日本語メッセージが出力されることを確認する。"""
         stream = io.StringIO()
-        formatter.write_warning("注意してください", stream)
-        assert stream.getvalue() == "警告: 注意してください\n"
-
-    def test_write_error_prefixes_message(self) -> None:
-        """write_errorがエラー接頭辞付きでメッセージを出力することを確認する。"""
-        stream = io.StringIO()
-        formatter.write_error("処理に失敗しました", stream)
-        assert stream.getvalue() == "エラー: 処理に失敗しました\n"
-
-    def test_write_error_does_not_leak_secret_when_caller_avoids_it(self) -> None:
-        """呼び出し元が秘密情報を含めない限り、write_errorの出力に秘密情報が現れないことを確認する。"""
-        stream = io.StringIO()
-        formatter.write_error("鍵ファイルが見つかりません: C:/keys/master.key", stream)
-        assert "JBSWY3DPEHPK3PXP" not in stream.getvalue()
+        formatter.write_info(
+            MsgKey.ADD_SERVICE_REGISTERED, "ja", stream=stream, service="github"
+        )
+        assert stream.getvalue() == "サービスを登録しました: github\n"

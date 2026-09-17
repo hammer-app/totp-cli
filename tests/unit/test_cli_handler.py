@@ -16,6 +16,7 @@ from vtotp.cli.handler import CliHandler, ENV_KEY_PATH_VARIABLE
 from vtotp.core.key_manager import KeyManager
 from vtotp.core.secure_storage import SecureStorage
 from vtotp.domain.models import SecretRecord
+from vtotp.i18n.resolver import ENV_LANG_VARIABLE
 
 
 def _make_input(responses: list[str]) -> Callable[[], str]:
@@ -198,8 +199,8 @@ class TestInitCommand:
         handler = handler_factory([""])
         exit_code = handler.run(["init"])
         assert exit_code == 7
-        assert "引用符" not in stderr.getvalue()
-        assert "パスを空にする" not in stderr.getvalue()
+        assert "closed" not in stderr.getvalue()
+        assert "cannot be empty" not in stderr.getvalue()
 
     def test_prompts_for_key_path_quoted_empty_string_is_cancelled_with_error(
         self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
@@ -208,7 +209,7 @@ class TestInitCommand:
         handler = handler_factory(['""'])
         exit_code = handler.run(["init"])
         assert exit_code == 7
-        assert "パスを空にすることはできません" in stderr.getvalue()
+        assert "cannot be empty" in stderr.getvalue()
 
     def test_prompts_for_key_path_quoted_whitespace_only_is_cancelled_with_error(
         self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
@@ -217,7 +218,7 @@ class TestInitCommand:
         handler = handler_factory(["'   '"])
         exit_code = handler.run(["init"])
         assert exit_code == 7
-        assert "パスを空にすることはできません" in stderr.getvalue()
+        assert "cannot be empty" in stderr.getvalue()
 
     def test_prompts_for_key_path_mismatched_quotes_is_cancelled_with_error(
         self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
@@ -226,7 +227,7 @@ class TestInitCommand:
         handler = handler_factory(["\"invalid'"])
         exit_code = handler.run(["init"])
         assert exit_code == 7
-        assert "引用符が正しく閉じられていません" in stderr.getvalue()
+        assert "not properly closed" in stderr.getvalue()
 
     def test_prompts_for_key_path_unclosed_quote_is_cancelled_with_error(
         self, handler_factory: Callable[..., CliHandler], stderr: io.StringIO
@@ -235,7 +236,7 @@ class TestInitCommand:
         handler = handler_factory(['"unclosed'])
         exit_code = handler.run(["init"])
         assert exit_code == 7
-        assert "引用符が正しく閉じられていません" in stderr.getvalue()
+        assert "not properly closed" in stderr.getvalue()
 
     def test_prompts_for_key_path_strips_surrounding_double_quotes(
         self,
@@ -445,7 +446,7 @@ class TestInitCommand:
         exit_code = handler.run([command, option, value])
         assert exit_code == 2
         assert "Traceback" not in stderr.getvalue()
-        assert "パスを空にすることはできません" in stderr.getvalue()
+        assert "cannot be empty" in stderr.getvalue()
 
     @pytest.mark.parametrize(
         ("option", "value"),
@@ -476,7 +477,7 @@ class TestInitCommand:
         handler = handler_factory()
         exit_code = handler.run(["init", "--key", '""'])
         assert exit_code == 2
-        assert "パスを空にすることはできません" in stderr.getvalue()
+        assert "cannot be empty" in stderr.getvalue()
 
     def test_invalid_windows_path_characters_return_exit_code_1_without_crashing(
         self,
@@ -498,7 +499,7 @@ class TestInitCommand:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert "エラー" in stderr.getvalue()
+        assert "Error" in stderr.getvalue()
         # 未処理のPythonトレースバック（"Traceback (most recent call last)"）が
         # stderrへ現れていないことを確認する。
         assert "Traceback" not in stderr.getvalue()
@@ -528,7 +529,7 @@ class TestInitCommand:
 
         assert exit_code == 1
         assert stdout.getvalue() == ""
-        assert "エラー" in stderr.getvalue()
+        assert "Error" in stderr.getvalue()
         assert "Traceback" not in stderr.getvalue()
 
 
@@ -1215,7 +1216,7 @@ class TestConfigCommand:
         handler = handler_factory()
         exit_code = handler.run(["config"])
         assert exit_code == 0
-        assert "未設定" in stdout.getvalue()
+        assert "(not set)" in stdout.getvalue()
 
     def test_shows_resolved_paths_after_init(
         self,
@@ -1270,7 +1271,7 @@ class TestArgumentParseErrors:
         """解析エラーのメッセージが注入済みのstderrへ書き込まれることを確認する。"""
         handler = handler_factory()
         handler.run(["generate"])
-        assert "エラー" in stderr.getvalue()
+        assert "Error" in stderr.getvalue()
 
 
 class TestHelpAndVersion:
@@ -1452,7 +1453,7 @@ class TestConfigFileHandling:
         handler = handler_factory()
         exit_code = handler.run(["config"])
         assert exit_code == 0
-        assert "未設定" in stdout.getvalue()
+        assert "(not set)" in stdout.getvalue()
 
     def test_non_object_json_config_file_is_treated_as_empty(
         self,
@@ -1467,7 +1468,7 @@ class TestConfigFileHandling:
         handler = handler_factory()
         exit_code = handler.run(["config"])
         assert exit_code == 0
-        assert "未設定" in stdout.getvalue()
+        assert "(not set)" in stdout.getvalue()
 
     def test_explicit_storage_option_overrides_config_and_default(
         self,
@@ -1613,3 +1614,418 @@ class TestInteractivePromptEofHandling:
         handler = handler_factory([])
         exit_code = handler.run(["add", "github", "--key", str(key_path)])
         assert exit_code == 7
+
+
+class TestLanguageOption:
+    """`-l`/`--lang` オプションおよび表示言語解決優先順位に関するテスト（DESIGN.md 23.2）。"""
+
+    def test_error_message_defaults_to_english_without_lang_option(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`-l`未指定・環境変数未設定の場合、既定で英語のエラーメッセージになることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            ["generate", "github", "--key", str(tmp_path / "missing.key")]
+        )
+        assert exit_code == 3
+        assert "Error: Key file not found" in stderr.getvalue()
+
+    def test_lang_option_switches_error_message_to_japanese(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`-l ja`指定時、エラーメッセージが日本語で表示されることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            [
+                "generate",
+                "github",
+                "--key",
+                str(tmp_path / "missing.key"),
+                "-l",
+                "ja",
+            ]
+        )
+        assert exit_code == 3
+        assert "エラー: 鍵ファイルが見つかりません" in stderr.getvalue()
+
+    def test_long_lang_option_form_also_switches_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`--lang ja`（長形式）でも同様に言語が切り替わることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            [
+                "generate",
+                "github",
+                "--key",
+                str(tmp_path / "missing.key"),
+                "--lang",
+                "ja",
+            ]
+        )
+        assert exit_code == 3
+        assert "エラー" in stderr.getvalue()
+
+    def test_option_and_positional_service_can_appear_in_either_order(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`SERVICE`と後置オプションは順不同で指定できることを確認する（DESIGN.md 5.1）。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            ["generate", "-l", "ja", "github", "--key", str(tmp_path / "missing.key")]
+        )
+        assert exit_code == 3
+        assert "エラー" in stderr.getvalue()
+
+    def test_lang_equals_syntax_is_recognized_during_prescan(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`--lang=ja`（`=`区切り形式）でも表示言語が切り替わることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            [
+                "generate",
+                "github",
+                "--key",
+                str(tmp_path / "missing.key"),
+                "--lang=ja",
+            ]
+        )
+        assert exit_code == 3
+        assert "エラー" in stderr.getvalue()
+
+    def test_invalid_lang_value_returns_exit_code_2(
+        self, handler_factory: Callable[..., CliHandler]
+    ) -> None:
+        """`en`/`ja`以外の`--lang`値は終了コード2になることを確認する（argparseのchoices検証）。"""
+        handler = handler_factory()
+        exit_code = handler.run(["list", "--lang", "fr"])
+        assert exit_code == 2
+
+    def test_env_variable_selects_language_without_cli_flag(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`-l`未指定でも、VTOTP_LANG環境変数により表示言語が切り替わることを確認する。"""
+        monkeypatch.setenv(ENV_LANG_VARIABLE, "ja")
+        handler = handler_factory()
+        exit_code = handler.run(
+            ["generate", "github", "--key", str(tmp_path / "missing.key")]
+        )
+        assert exit_code == 3
+        assert "エラー" in stderr.getvalue()
+
+    def test_cli_flag_overrides_environment_variable(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`-l`がVTOTP_LANG環境変数より優先されることを確認する。"""
+        monkeypatch.setenv(ENV_LANG_VARIABLE, "ja")
+        handler = handler_factory()
+        exit_code = handler.run(
+            [
+                "generate",
+                "github",
+                "--key",
+                str(tmp_path / "missing.key"),
+                "-l",
+                "en",
+            ]
+        )
+        assert exit_code == 3
+        assert "Error: Key file not found" in stderr.getvalue()
+
+    def test_config_language_field_is_used_when_cli_and_env_are_absent(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        config_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """config.jsonのlanguageフィールドが、CLI引数・環境変数未指定時に使われることを確認する。"""
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps({"language": "ja"}), encoding="utf-8")
+
+        handler = handler_factory()
+        exit_code = handler.run(
+            ["generate", "github", "--key", str(tmp_path / "missing.key")]
+        )
+        assert exit_code == 3
+        assert "エラー" in stderr.getvalue()
+
+    def test_environment_variable_overrides_config_file_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        config_path: Path,
+        stderr: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """VTOTP_LANG環境変数がconfig.jsonのlanguageより優先されることを確認する。"""
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps({"language": "ja"}), encoding="utf-8")
+        monkeypatch.setenv(ENV_LANG_VARIABLE, "en")
+
+        handler = handler_factory()
+        exit_code = handler.run(
+            ["generate", "github", "--key", str(tmp_path / "missing.key")]
+        )
+        assert exit_code == 3
+        assert "Error: Key file not found" in stderr.getvalue()
+
+    @pytest.mark.parametrize("language", ["en", "ja"])
+    def test_exit_codes_are_identical_regardless_of_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        language: str,
+    ) -> None:
+        """同一エラーの終了コードが、表示言語に関わらず常に同じであることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(
+            [
+                "generate",
+                "github",
+                "--key",
+                str(tmp_path / "missing.key"),
+                "-l",
+                language,
+            ]
+        )
+        assert exit_code == 3
+
+    def test_help_and_error_output_contain_no_traceback_regardless_of_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """日本語表示時もPythonトレースバックが出力されないことを確認する。"""
+        handler = handler_factory()
+        handler.run(
+            ["generate", "github", "--key", str(tmp_path / "missing.key"), "-l", "ja"]
+        )
+        assert "Traceback" not in stderr.getvalue()
+
+
+class TestPrePositionedOptionRejection:
+    """第一引数固定・オプション後置原則に関するテスト（DESIGN.md 20.1）。"""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["-l", "ja", "get", "github"],
+            ["--lang", "ja", "get", "github"],
+            ["-k", "some.key", "list"],
+            ["--key", "some.key", "list"],
+            ["--storage", "some.enc", "list"],
+            ["--lang", "ja", "init"],
+        ],
+    )
+    def test_leading_option_before_subcommand_returns_exit_code_2(
+        self, handler_factory: Callable[..., CliHandler], argv: list[str]
+    ) -> None:
+        """サブコマンド/サービス名より前に置かれた値付きオプションは終了コード2で拒否されることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(argv)
+        assert exit_code == 2
+
+    def test_leading_option_rejection_does_not_crash_with_traceback(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stderr: io.StringIO,
+    ) -> None:
+        """前置オプション拒否時にPythonトレースバックが出力されないことを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["-k", "some.key", "list"])
+        assert exit_code == 2
+        assert "Traceback" not in stderr.getvalue()
+
+    def test_option_after_subcommand_is_accepted(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        initialized_handler: tuple[CliHandler, Path],
+        stdout: io.StringIO,
+    ) -> None:
+        """サブコマンドの後方に置かれたオプションは正常に受理されることを確認する（対照テスト）。"""
+        _, key_path = initialized_handler
+        add_handler = handler_factory()
+        add_handler.run(
+            ["add", "github", "--key", str(key_path), "--secret", "JBSWY3DPEHPK3PXP"]
+        )
+
+        handler = handler_factory()
+        exit_code = handler.run(["get", "github", "--key", str(key_path)])
+        assert exit_code == 0
+        assert stdout.getvalue().strip().isdigit()
+
+
+class TestConfigLanguageUpdate:
+    """`config`の言語表示・更新（`-l`ショートカット/`set language`標準構文）に関するテスト。"""
+
+    def test_config_with_no_args_shows_resolved_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stdout: io.StringIO,
+    ) -> None:
+        """引数無しの`config`が、解決済みの表示言語を出力に含むことを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["config"])
+        assert exit_code == 0
+        assert "language: en" in stdout.getvalue()
+
+    def test_config_with_lang_argument_only_previews_display_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stdout: io.StringIO,
+    ) -> None:
+        """`config`単独実行時とは異なり、`config -l ja`は表示のみでなく更新を行うことを確認する準備として、
+        まず`-l`無しでは`language: en`が表示されることを確認する（対照ケース）。
+        """
+        handler = handler_factory()
+        handler.run(["config"])
+        assert "language: en" in stdout.getvalue()
+
+    def test_shortcut_updates_language_and_confirms_in_new_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        stdout: io.StringIO,
+        config_path: Path,
+    ) -> None:
+        """`config -l ja`が言語設定を更新し、確認メッセージも新しい言語で表示されることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["config", "-l", "ja"])
+        assert exit_code == 0
+        assert "言語を更新しました" in stdout.getvalue()
+
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["language"] == "ja"
+
+    def test_set_language_standard_syntax_is_equivalent_to_shortcut(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        config_path: Path,
+    ) -> None:
+        """`config set language en`が`config -l en`と同じくlanguageを更新することを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["config", "set", "language", "en"])
+        assert exit_code == 0
+
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["language"] == "en"
+
+    def test_language_update_preserves_existing_key_path_and_storage_path(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        initialized_handler: tuple[CliHandler, Path],
+        config_path: Path,
+    ) -> None:
+        """言語更新が既存のkey_path/storage_pathを変更しないことを確認する。"""
+        _, key_path = initialized_handler
+        before = json.loads(config_path.read_text(encoding="utf-8"))
+
+        handler = handler_factory()
+        exit_code = handler.run(["config", "-l", "ja"])
+        assert exit_code == 0
+
+        after = json.loads(config_path.read_text(encoding="utf-8"))
+        assert after["key_path"] == before["key_path"]
+        assert after["language"] == "ja"
+
+    def test_set_language_invalid_value_returns_exit_code_2(
+        self, handler_factory: Callable[..., CliHandler]
+    ) -> None:
+        """`config set language <不正な値>`が終了コード2になることを確認する。"""
+        handler = handler_factory()
+        exit_code = handler.run(["config", "set", "language", "fr"])
+        assert exit_code == 2
+
+    def test_set_invalid_setting_key_returns_exit_code_2(
+        self, handler_factory: Callable[..., CliHandler]
+    ) -> None:
+        """`config set <language以外のキー>`が終了コード2になることを確認する（v0.2.x時点の更新対象制限）。"""
+        handler = handler_factory()
+        exit_code = handler.run(["config", "set", "key_path", "/some/path"])
+        assert exit_code == 2
+
+    def test_config_output_does_not_leak_secrets_after_language_update(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        initialized_handler: tuple[CliHandler, Path],
+        stdout: io.StringIO,
+    ) -> None:
+        """言語更新後の`config`出力にも鍵の内容が含まれないことを確認する（Zero Leakage Rule）。"""
+        _, key_path = initialized_handler
+        key_bytes = key_path.read_bytes()
+
+        handler = handler_factory()
+        handler.run(["config", "-l", "ja"])
+        assert key_bytes.hex() not in stdout.getvalue()
+
+
+class TestInitLanguagePersistence:
+    """`init`が言語設定をconfig.jsonへ保存することに関するテスト。"""
+
+    def test_init_saves_explicit_lang_option_to_config(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        config_path: Path,
+    ) -> None:
+        """`init --key PATH -l ja`実行後、config.jsonのlanguageが'ja'になることを確認する。"""
+        key_path = tmp_path / "master.key"
+        handler = handler_factory()
+        exit_code = handler.run(["init", "--key", str(key_path), "-l", "ja"])
+        assert exit_code == 0
+
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["language"] == "ja"
+
+    def test_init_without_lang_option_saves_auto_resolved_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        config_path: Path,
+    ) -> None:
+        """`-l`未指定の`init`が、自動解決された言語（既定でen）をconfig.jsonへ保存することを確認する。"""
+        key_path = tmp_path / "master.key"
+        handler = handler_factory()
+        exit_code = handler.run(["init", "--key", str(key_path)])
+        assert exit_code == 0
+
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["language"] == "en"
+
+    def test_init_confirmation_messages_use_the_saved_language(
+        self,
+        handler_factory: Callable[..., CliHandler],
+        tmp_path: Path,
+        stderr: io.StringIO,
+    ) -> None:
+        """`init -l ja`実行時、鍵作成・ストレージ初期化の案内が日本語で表示されることを確認する。"""
+        key_path = tmp_path / "master.key"
+        handler = handler_factory()
+        handler.run(["init", "--key", str(key_path), "-l", "ja"])
+        assert "鍵ファイルを作成しました" in stderr.getvalue()
+        assert "暗号化データファイルを初期化しました" in stderr.getvalue()

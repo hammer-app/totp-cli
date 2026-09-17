@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import io
+import string
 
 import pytest
 
 from vtotp.cli import formatter
-from vtotp.domain.exceptions import KeyNotFoundError, StorageCorruptedError
+from vtotp.domain.exceptions import (
+    CancelledError,
+    CommandParseError,
+    InvalidKeyError,
+    InvalidSecretError,
+    KeyNotFoundError,
+    ServiceNotFoundError,
+    StorageCorruptedError,
+    TotpCliError,
+)
 from vtotp.domain.models import SecretRecord
-from vtotp.i18n.catalog import MsgKey
+from vtotp.i18n.catalog import EN_CATALOG, JA_CATALOG, SUPPORTED_LANGUAGES, MsgKey
 
 
 class TestFormatMessage:
@@ -248,3 +258,204 @@ class TestWriteInfo:
             MsgKey.ADD_SERVICE_REGISTERED, "ja", stream=stream, service="github"
         )
         assert stream.getvalue() == "サービスを登録しました: github\n"
+
+
+#: 全専用例外種別 x 代表的なMsgKey/context x 期待終了コードの対応表。
+#: TotpCliErrorから派生する全例外クラス（CLAUDE.md 4章の一覧と一致）を
+#: 1つずつ、それぞれが実際に送出されうる代表的な`MsgKey`とともに網羅する。
+_EXCEPTION_LOCALIZATION_CASES: list[
+    tuple[type[TotpCliError], MsgKey, dict[str, str], int]
+] = [
+    (KeyNotFoundError, MsgKey.KEY_NOT_FOUND, {"path": "C:/keys/master.key"}, 3),
+    (InvalidKeyError, MsgKey.KEY_INVALID_SIZE, {"path": "C:/keys/master.key"}, 3),
+    (StorageCorruptedError, MsgKey.STORAGE_DECRYPTION_FAILED, {}, 4),
+    (ServiceNotFoundError, MsgKey.SERVICE_NOT_FOUND, {"service": "github"}, 5),
+    (InvalidSecretError, MsgKey.SECRET_INVALID_FORMAT, {}, 6),
+    (
+        CommandParseError,
+        MsgKey.COMMAND_PARSE_ERROR,
+        {"detail": "unrecognized arguments: --foo"},
+        2,
+    ),
+    (CancelledError, MsgKey.CANCELLED, {}, 7),
+]
+
+
+class TestExceptionLocalizationMatrix:
+    """全例外種別 x 日英表示・終了コードの網羅テスト（CLAUDE.md 4章の例外階層に対応）。"""
+
+    @pytest.mark.parametrize(
+        ("exception_type", "message_key", "context", "expected_exit_code"),
+        _EXCEPTION_LOCALIZATION_CASES,
+        ids=[case[0].__name__ for case in _EXCEPTION_LOCALIZATION_CASES],
+    )
+    @pytest.mark.parametrize("language", SUPPORTED_LANGUAGES)
+    def test_exception_localizes_in_both_languages_with_stable_exit_code(
+        self,
+        exception_type: type[TotpCliError],
+        message_key: MsgKey,
+        context: dict[str, str],
+        expected_exit_code: int,
+        language: str,
+    ) -> None:
+        """各例外種別が、指定言語でローカライズされたエラー表示文を生成し、
+        言語に関わらず同一の終了コードを返すことを確認する。
+        """
+        error = exception_type(message_key, context=context)
+        assert error.exit_code == expected_exit_code
+
+        rendered = formatter.format_error(error, language)
+        label = formatter.format_message(MsgKey.LABEL_ERROR, language)
+        expected_body = formatter.format_message(message_key, language, **context)
+
+        assert rendered == f"{label}: {expected_body}"
+        # 表示文が空でなく、かつラベルと本文の両方を含むことを確認する。
+        assert rendered.strip() != ""
+
+    @pytest.mark.parametrize(
+        ("exception_type", "message_key", "context", "expected_exit_code"),
+        _EXCEPTION_LOCALIZATION_CASES,
+        ids=[case[0].__name__ for case in _EXCEPTION_LOCALIZATION_CASES],
+    )
+    def test_exit_code_is_identical_across_languages(
+        self,
+        exception_type: type[TotpCliError],
+        message_key: MsgKey,
+        context: dict[str, str],
+        expected_exit_code: int,
+    ) -> None:
+        """同一の例外インスタンスについて、`format_error`へ渡す言語を変えても
+        `exit_code`自体は変化しないことを確認する（終了コードは表示言語に
+        依存しないというDESIGN.md 21章の契約）。
+        """
+        error = exception_type(message_key, context=context)
+        rendered_messages = {
+            language: formatter.format_error(error, language)
+            for language in SUPPORTED_LANGUAGES
+        }
+
+        assert error.exit_code == expected_exit_code
+        # 表示文そのものは言語ごとに異なる（同一内容へ退化していない）ことを
+        # 併せて確認する。
+        assert len(set(rendered_messages.values())) == len(SUPPORTED_LANGUAGES)
+
+    def test_all_totp_cli_error_subclasses_are_covered(self) -> None:
+        """例外階層の全サブクラスが、本テストの対応表に一つずつ含まれていることを確認する
+        （新規例外クラス追加時に、本テストの拡充漏れを検知する）。
+        """
+        covered_types = {case[0] for case in _EXCEPTION_LOCALIZATION_CASES}
+        all_subclasses = set(TotpCliError.__subclasses__())
+        assert covered_types == all_subclasses
+
+
+class TestContextZeroLeakageContract:
+    """`TotpCliError.context`/`format_message`が機密情報を示すキー名を
+    含めない契約に関するテスト（Zero Leakage Rule）。
+    """
+
+    @pytest.mark.parametrize(
+        "forbidden_key",
+        [
+            "secret",
+            "secrets",
+            "key",
+            "raw_key",
+            "key_bytes",
+            "master_key",
+            "raw_secret",
+            "totp_secret",
+            "ciphertext",
+            "plaintext",
+            "nonce",
+            "password",
+            "token",
+        ],
+    )
+    def test_constructing_with_a_forbidden_context_key_is_rejected(
+        self, forbidden_key: str
+    ) -> None:
+        """機密情報を示唆するキー名がcontextに含まれる場合、TotpCliErrorの構築
+        自体がValueErrorで拒否されることを確認する。
+        """
+        with pytest.raises(ValueError):
+            TotpCliError(MsgKey.CANCELLED, context={forbidden_key: "irrelevant-value"})
+
+    @pytest.mark.parametrize("forbidden_key", ["SECRET", "Key", "Raw_Key"])
+    def test_forbidden_key_check_is_case_insensitive(self, forbidden_key: str) -> None:
+        """機密キー名の判定が大文字小文字を区別しないことを確認する。"""
+        with pytest.raises(ValueError):
+            TotpCliError(MsgKey.CANCELLED, context={forbidden_key: "irrelevant-value"})
+
+    def test_error_message_lists_every_offending_key(self) -> None:
+        """複数の禁止キーが同時に渡された場合、ValueErrorのメッセージに
+        全ての該当キーが列挙されることを確認する（デバッグ容易性）。
+        """
+        with pytest.raises(ValueError) as excinfo:
+            TotpCliError(
+                MsgKey.CANCELLED, context={"secret": "x", "path": "safe", "key": "y"}
+            )
+        assert "secret" in str(excinfo.value)
+        assert "key" in str(excinfo.value)
+        assert "path" not in str(excinfo.value)
+
+    def test_safe_context_keys_used_by_the_application_are_accepted(self) -> None:
+        """実際にアプリケーション全体で使用している安全なcontextキー
+        （path/service/version/algorithm/detail等）は拒否されないことを確認する。
+        """
+        error = KeyNotFoundError(
+            MsgKey.KEY_NOT_FOUND, context={"path": "C:/keys/master.key"}
+        )
+        assert error.context == {"path": "C:/keys/master.key"}
+
+        service_error = ServiceNotFoundError(
+            MsgKey.SERVICE_NOT_FOUND, context={"service": "github"}
+        )
+        assert service_error.context == {"service": "github"}
+
+        parse_error = CommandParseError(
+            MsgKey.COMMAND_PARSE_ERROR, context={"detail": "unrecognized arguments"}
+        )
+        assert parse_error.context == {"detail": "unrecognized arguments"}
+
+    def test_context_omitted_entirely_is_accepted(self) -> None:
+        """contextを省略した構築（大多数の例外送出箇所）が拒否されないことを確認する。"""
+        error = CancelledError(MsgKey.CANCELLED)
+        assert error.context == {}
+
+    def test_key_named_key_path_is_not_confused_with_raw_key_material(self) -> None:
+        """`key_path`のような、たまたま`key`を含むが実際には安全なキー名は
+        誤って拒否されないことを確認する（完全一致判定であり部分一致では
+        ないことの確認）。
+        """
+        error = TotpCliError(MsgKey.CANCELLED, context={"key_path": "C:/keys/m.key"})
+        assert error.context == {"key_path": "C:/keys/m.key"}
+
+    def test_catalog_placeholders_never_use_a_forbidden_key_name(self) -> None:
+        """カタログ（`format_message`が参照するテンプレート集合）自体が、
+        機密情報を示唆するプレースホルダー名を一切宣言していないことを
+        確認する。これにより、正規の呼び出し元コードが将来にわたって
+        機密キー名を`context`へ渡さざるを得ない設計になることを防ぐ。
+        """
+        forbidden = {
+            "secret",
+            "secrets",
+            "key",
+            "raw_key",
+            "key_bytes",
+            "master_key",
+            "raw_secret",
+            "totp_secret",
+            "ciphertext",
+            "plaintext",
+            "nonce",
+            "password",
+            "token",
+        }
+        for catalog in (EN_CATALOG, JA_CATALOG):
+            for template in catalog.values():
+                placeholders = {
+                    field_name
+                    for _, field_name, _, _ in string.Formatter().parse(template)
+                    if field_name
+                }
+                assert placeholders.isdisjoint(forbidden)

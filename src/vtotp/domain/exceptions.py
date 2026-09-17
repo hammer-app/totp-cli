@@ -17,6 +17,28 @@ from typing import Mapping
 
 from vtotp.i18n.catalog import MsgKey
 
+#: `context` のキー名として使用してはならない、機密情報を示唆する名前の
+#: 完全一致集合（大文字小文字を区別しない）。パス名やサービス名などの
+#: 安全な識別子（例: ``key_path``、``service``）を誤って禁止しないよう、
+#: 部分一致ではなく完全一致で判定する（Zero Leakage Rule）。
+_FORBIDDEN_CONTEXT_KEYS: frozenset[str] = frozenset(
+    {
+        "secret",
+        "secrets",
+        "key",
+        "raw_key",
+        "key_bytes",
+        "master_key",
+        "raw_secret",
+        "totp_secret",
+        "ciphertext",
+        "plaintext",
+        "nonce",
+        "password",
+        "token",
+    }
+)
+
 
 class TotpCliError(Exception):
     """vtotp アプリケーション共通の基底例外。
@@ -24,7 +46,11 @@ class TotpCliError(Exception):
     秘密情報を含まない、型安全なメッセージキーと構造化コンテキストのみを
     保持する。``context`` の値には鍵バイト列・TOTPシークレット・復号済み
     JSON等を含めてはならない（パス名・サービス名・バージョン番号等の
-    安全な文字列のみを許容する）。
+    安全な文字列のみを許容する）。この契約を実装レベルで担保するため、
+    ``context`` のキー名が :data:`_FORBIDDEN_CONTEXT_KEYS` に完全一致する
+    場合はコンストラクタ自体が :class:`ValueError` を送出する（呼び出し元の
+    実装ミスを早期に検知するための開発時ガードであり、ユーザー向けの
+    エラー経路ではない）。
     """
 
     #: このエラー種別に対応するCLI終了コード（既定値は一般エラー）。
@@ -35,9 +61,25 @@ class TotpCliError(Exception):
         message_key: MsgKey,
         context: Mapping[str, str] | None = None,
     ) -> None:
-        """メッセージキーと安全なコンテキストを保持して初期化する。"""
+        """メッセージキーと安全なコンテキストを保持して初期化する。
+
+        ``context`` に機密情報を示唆するキー名（``secret``、``key``、
+        ``raw_key``、``ciphertext`` 等）が含まれる場合は :class:`ValueError`
+        を送出し、構築自体を拒否する。
+        """
+        resolved_context: Mapping[str, str] = (
+            dict(context) if context is not None else {}
+        )
+        leaked_keys = sorted(
+            key for key in resolved_context if key.lower() in _FORBIDDEN_CONTEXT_KEYS
+        )
+        if leaked_keys:
+            raise ValueError(
+                "TotpCliError context must not contain secret-bearing keys: "
+                f"{leaked_keys}"
+            )
         self.message_key: MsgKey = message_key
-        self.context: Mapping[str, str] = dict(context) if context is not None else {}
+        self.context: Mapping[str, str] = resolved_context
         super().__init__(message_key.value)
 
 

@@ -65,17 +65,18 @@ class LanguageResolver:
         いずれの候補も採用できない場合は :data:`DEFAULT_LANGUAGE` を返す。
         """
         for candidate in (cli_lang, env_lang, config_lang, locale_lang):
-            normalized = self._normalize(candidate)
+            normalized = self.normalize(candidate)
             if normalized is not None:
                 return normalized
         return DEFAULT_LANGUAGE
 
     @staticmethod
-    def _normalize(value: object) -> str | None:
+    def normalize(value: object) -> str | None:
         """ロケール表記（``en-US``、``ja_JP`` 等）を主要言語コードへ正規化する。
 
         `SUPPORTED_LANGUAGES` に含まれない値、空文字、文字列以外の値は
-        ``None`` として無視する。
+        ``None`` として無視する。対話プロンプトの自由入力（例: `init` の
+        言語選択）を正規化する際にも再利用する。
         """
         if not isinstance(value, str):
             return None

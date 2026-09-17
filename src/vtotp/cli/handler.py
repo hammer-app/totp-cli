@@ -142,6 +142,12 @@ class CliHandler:
         }
     )
 
+    #: `SERVICE` を必須位置引数とするサブコマンド（正規化後のトークン）。
+    #: `-g`は`normalize_argv`で`generate`へ変換済みのため、ここには含めない。
+    _SERVICE_REQUIRED_COMMANDS: frozenset[str] = frozenset(
+        {"generate", "get", "add", "remove", "rm"}
+    )
+
     def __init__(
         self,
         key_manager: KeyManager | None = None,
@@ -218,6 +224,7 @@ class CliHandler:
         )
 
         try:
+            self._validate_service_position(normalized_argv)
             parsed_args = self._parser.parse_args(normalized_argv)
         except SystemExit as exc:
             return self._exit_code_from_system_exit(exc)
@@ -269,6 +276,22 @@ class CliHandler:
         if first in self.RESERVED_COMMANDS or first.startswith("-"):
             return list(argv)
         return ["generate", first, *argv[1:]]
+
+    def _validate_service_position(self, argv: Sequence[str]) -> None:
+        """`SERVICE` を必須とするコマンドで、サブコマンド直後に `SERVICE` が
+        指定されていること（オプションが前置されていないこと）を検証する。
+
+        `vtotp get --key PATH github` や `vtotp generate -l ja github` の
+        ように、`SERVICE` より前にオプションが置かれた場合は、argparseが
+        たまたま解決してしまう前に `CommandParseError`（終了コード2）を
+        送出して拒否する（DESIGN.md 20.1「第一引数固定と後置オプション」）。
+        `SERVICE` 自体が省略された場合（`vtotp generate` 等）は、この検証を
+        素通りさせ、argparseの必須位置引数エラーに処理を委ねる。
+        """
+        if not argv or argv[0] not in self._SERVICE_REQUIRED_COMMANDS:
+            return
+        if len(argv) >= 2 and argv[1].startswith("-"):
+            raise CommandParseError(MsgKey.SERVICE_MUST_PRECEDE_OPTIONS)
 
     # --- 表示言語の解決 ---
 
@@ -501,6 +524,32 @@ class CliHandler:
             return None
         return Path(normalized)
 
+    def _prompt_for_language(self) -> str:
+        """`init` で `-l`/`--lang` 未指定時に、表示言語を対話入力で取得する。
+
+        既に解決済みの言語（`self._current_language`）をプロンプトの既定値
+        として提示する（DESIGN.md 19.2「init は解決済み言語を初期値として
+        提示し」）。空欄・EOF・`en`/`ja`のいずれにも正規化できない入力は、
+        いずれも黙ってその既定値を採用する（鍵パスの対話入力とは異なり、
+        言語選択には常に安全なフォールバック値が存在するため、キャンセル
+        は行わない）。
+        """
+        default_language = self._current_language
+        print(
+            formatter.format_message(
+                MsgKey.INIT_PROMPT_LANGUAGE,
+                self._current_language,
+                default=default_language,
+            ),
+            file=self._stderr,
+        )
+        try:
+            response = self._input()
+        except EOFError:
+            return default_language
+        normalized = self._language_resolver.normalize(response)
+        return normalized if normalized is not None else default_language
+
     def _prompt_for_secret(self) -> str | None:
         """`add` で `--secret` 未指定時に、TOTPシークレットを対話入力で取得する。"""
         print(
@@ -555,6 +604,9 @@ class CliHandler:
 
         storage_path = self._resolve_storage_path(None)
         self._secure_storage.initialize(storage_path, new_key)
+
+        if args.lang is None:
+            self._current_language = self._prompt_for_language()
 
         config = self._load_config()
         config["key_path"] = str(key_output_path)

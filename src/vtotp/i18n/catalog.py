@@ -47,6 +47,7 @@ class MsgKey(StrEnum):
     SECRET_INVALID_FORMAT = "secret_invalid_format"
 
     COMMAND_PARSE_ERROR = "command_parse_error"
+    SERVICE_MUST_PRECEDE_OPTIONS = "service_must_precede_options"
     PATH_EMPTY = "path_empty"
     PATH_UNCLOSED_QUOTE = "path_unclosed_quote"
 
@@ -54,6 +55,7 @@ class MsgKey(StrEnum):
     FILE_OPERATION_FAILED = "file_operation_failed"
 
     INIT_PROMPT_KEY_PATH = "init_prompt_key_path"
+    INIT_PROMPT_LANGUAGE = "init_prompt_language"
     INIT_KEY_EXISTS_WARNING = "init_key_exists_warning"
     INIT_DECRYPTION_LOSS_WARNING = "init_decryption_loss_warning"
     INIT_KEY_CREATED = "init_key_created"
@@ -126,12 +128,18 @@ EN_CATALOG: Catalog = {
         "TOTP secret format is invalid (must be a Base32-encoded string)"
     ),
     MsgKey.COMMAND_PARSE_ERROR: "Argument error: {detail}",
+    MsgKey.SERVICE_MUST_PRECEDE_OPTIONS: (
+        "SERVICE must immediately follow the command, before any options"
+    ),
     MsgKey.PATH_EMPTY: "Path cannot be empty",
     MsgKey.PATH_UNCLOSED_QUOTE: "Quotes are not properly closed: {value}",
     MsgKey.CANCELLED: "Operation was cancelled by the user",
     MsgKey.FILE_OPERATION_FAILED: "A file operation failed",
     MsgKey.INIT_PROMPT_KEY_PATH: (
         "Enter the output path for the new key file (leave blank to cancel):"
+    ),
+    MsgKey.INIT_PROMPT_LANGUAGE: (
+        "Select display language [en/ja] (default: {default}):"
     ),
     MsgKey.INIT_KEY_EXISTS_WARNING: (
         "A key file already exists at this location: {path}\n"
@@ -204,11 +212,15 @@ JA_CATALOG: Catalog = {
         "TOTPシークレットの形式が不正です（Base32形式の文字列である必要があります）"
     ),
     MsgKey.COMMAND_PARSE_ERROR: "引数エラー: {detail}",
+    MsgKey.SERVICE_MUST_PRECEDE_OPTIONS: (
+        "SERVICEはサブコマンドの直後に指定してください（オプションより前）"
+    ),
     MsgKey.PATH_EMPTY: "パスを空にすることはできません",
     MsgKey.PATH_UNCLOSED_QUOTE: "引用符が正しく閉じられていません: {value}",
     MsgKey.CANCELLED: "ユーザーによって操作がキャンセルされました",
     MsgKey.FILE_OPERATION_FAILED: "ファイル操作に失敗しました",
     MsgKey.INIT_PROMPT_KEY_PATH: "鍵ファイルの新規作成先パスを入力してください（空欄でキャンセル）:",
+    MsgKey.INIT_PROMPT_LANGUAGE: "表示言語を選択してください [en/ja]（既定値: {default}）:",
     MsgKey.INIT_KEY_EXISTS_WARNING: (
         "指定された場所には既に鍵ファイルが存在します: {path}\n新しい鍵で上書きしますか？"
     ),

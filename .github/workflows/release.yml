@@ -30,36 +30,65 @@ jobs:
         id: version
         shell: pwsh
         run: |
+          # PE FileVersion/ProductVersion must always be a 4-part numeric
+          # value with the build/private part fixed to 0 (REQUIREMENTS.md
+          # 4.4.5), regardless of any pre-release suffix on the tag, e.g.
+          # "v0.2.0" and "v0.2.0-preview.1" both normalize to "0.2.0.0".
           $tag = "${{ github.ref_name }}"
           $version = $tag -replace '^v', ''
-          $parts = @($version.Split('.'))
-          while ($parts.Length -lt 4) { $parts += "0" }
-          $peVersion = ($parts[0..3] -join '.')
-          Write-Host "Tag: $tag -> version: $version (PE version: $peVersion)"
+          $corePart = ($version -split '-', 2)[0]
+          $parts = @($corePart.Split('.'))
+          while ($parts.Length -lt 3) { $parts += "0" }
+          $corePartNormalized = ($parts[0..2] -join '.')
+          $peVersion = "$corePartNormalized.0"
+          Write-Host "Tag: $tag -> version: $version (core: $corePartNormalized, PE version: $peVersion)"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "pe_version=$peVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Build vtotp.exe with Nuitka
+      # --- Standalone (ZIP) build: fastest startup, no temp-dir extraction. ---
+
+      - name: Build vtotp (standalone) with Nuitka
         run: |
-          python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
+          python -m nuitka --standalone --assume-yes-for-downloads --output-dir=dist/standalone --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
 
-      - name: Verify vtotp.exe (--version)
-        run: dist\vtotp.exe --version
-
-      - name: Verify vtotp.exe (--help)
-        run: dist\vtotp.exe --help
-
-      - name: Verify vtotp.exe (init smoke test)
+      - name: Locate standalone dist folder
+        id: standalone_dir
         shell: pwsh
         run: |
-          $keyPath = "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+          # Nuitka names the standalone output folder "<script>.dist"
+          # (i.e. "__main__.dist" here); --output-filename only renames the
+          # executable inside it, so look the folder up instead of assuming
+          # a fixed name.
+          $distFolder = Get-ChildItem -Path dist/standalone -Directory -Filter "*.dist" | Select-Object -First 1
+          if (-not $distFolder) { throw "Could not locate the Nuitka standalone .dist output folder under dist/standalone" }
+          $exePath = Join-Path $distFolder.FullName "vtotp.exe"
+          if (-not (Test-Path $exePath)) { throw "vtotp.exe was not found inside $($distFolder.FullName)" }
+          Write-Host "Standalone dist folder: $($distFolder.FullName)"
+          "standalone_dir=$($distFolder.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Verify standalone build (--version / --help)
+        shell: pwsh
+        run: |
+          & "${{ steps.standalone_dir.outputs.standalone_dir }}\vtotp.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "standalone vtotp.exe --version failed with exit code $LASTEXITCODE" }
+          & "${{ steps.standalone_dir.outputs.standalone_dir }}\vtotp.exe" --help
+          if ($LASTEXITCODE -ne 0) { throw "standalone vtotp.exe --help failed with exit code $LASTEXITCODE" }
+
+      - name: Verify standalone build (init smoke test)
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "standalone-home"
+          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
+
+          $exePath = Join-Path "${{ steps.standalone_dir.outputs.standalone_dir }}" "vtotp.exe"
+          $keyPath = "$env:RUNNER_TEMP\vtotp-standalone-smoke.key"
           $configDir = Join-Path $env:USERPROFILE ".vtotp"
           $configPath = Join-Path $configDir "config.json"
           $storagePath = Join-Path $configDir "vtotp-secrets.enc"
 
-          $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
+          $output = & $exePath init --key $keyPath 2>&1 | Out-String
           Write-Host $output
-          if ($LASTEXITCODE -ne 0) { throw "vtotp init failed with exit code $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "standalone vtotp init failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
           $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
           if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
@@ -69,7 +98,71 @@ jobs:
           if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
           if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
 
-      - name: Verify vtotp.exe PE metadata
+      - name: Verify standalone build PE metadata
+        shell: pwsh
+        run: |
+          $info = (Get-Item "${{ steps.standalone_dir.outputs.standalone_dir }}\vtotp.exe").VersionInfo
+          Write-Host ($info | Format-List | Out-String)
+          if ($info.CompanyName -ne "vtotp Project") { throw "Unexpected CompanyName: $($info.CompanyName)" }
+          if ($info.ProductName -ne "vtotp CLI") { throw "Unexpected ProductName: $($info.ProductName)" }
+          if ($info.FileDescription -ne "Custom CLI TOTP Authenticator") { throw "Unexpected FileDescription: $($info.FileDescription)" }
+          if (-not $info.LegalCopyright -or $info.LegalCopyright -notmatch "vtotp Project") { throw "Unexpected LegalCopyright: $($info.LegalCopyright)" }
+
+          $expectedParsed = [version]"${{ steps.version.outputs.pe_version }}"
+          $fileVersionParsed = [version]"$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
+          if ($fileVersionParsed -ne $expectedParsed) { throw "FileVersion mismatch: expected $expectedParsed, got $fileVersionParsed" }
+          $productVersionParsed = [version]"$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart).$($info.ProductPrivatePart)"
+          if ($productVersionParsed -ne $expectedParsed) { throw "ProductVersion mismatch: expected $expectedParsed, got $productVersionParsed" }
+          Write-Host "Standalone PE metadata verified (version $expectedParsed)"
+
+      - name: Package standalone build as ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "${{ steps.standalone_dir.outputs.standalone_dir }}\*" -DestinationPath dist\vtotp-windows-x64.zip -Force
+          if (-not (Test-Path dist\vtotp-windows-x64.zip)) { throw "dist\vtotp-windows-x64.zip was not created" }
+          Write-Host "Created dist\vtotp-windows-x64.zip"
+
+      # --- Onefile (single .exe) build: portable, self-extracting. ---
+
+      - name: Build vtotp (onefile) with Nuitka
+        run: |
+          python -m nuitka --standalone --onefile --onefile-tempdir-spec="{CACHE_DIR}/{COMPANY}/{PRODUCT}/{VERSION}" --onefile-no-compression --assume-yes-for-downloads --output-dir=dist/onefile --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
+
+      - name: Place onefile executable at dist\vtotp.exe
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist\onefile\vtotp.exe)) { throw "dist\onefile\vtotp.exe was not produced by the Nuitka onefile build" }
+          Copy-Item dist\onefile\vtotp.exe dist\vtotp.exe -Force
+
+      - name: Verify onefile build (--version / --help)
+        run: |
+          dist\vtotp.exe --version
+          dist\vtotp.exe --help
+
+      - name: Verify onefile build (init smoke test)
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "onefile-home"
+          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
+
+          $keyPath = "$env:RUNNER_TEMP\vtotp-onefile-smoke.key"
+          $configDir = Join-Path $env:USERPROFILE ".vtotp"
+          $configPath = Join-Path $configDir "config.json"
+          $storagePath = Join-Path $configDir "vtotp-secrets.enc"
+
+          $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { throw "onefile vtotp init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
+          $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
+          if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
+          if (-not (Test-Path $configPath)) { throw "config.json was not created" }
+          if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
+          if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
+
+      - name: Verify onefile build PE metadata
         shell: pwsh
         run: |
           $info = (Get-Item dist\vtotp.exe).VersionInfo
@@ -79,54 +172,47 @@ jobs:
           if ($info.FileDescription -ne "Custom CLI TOTP Authenticator") { throw "Unexpected FileDescription: $($info.FileDescription)" }
           if (-not $info.LegalCopyright -or $info.LegalCopyright -notmatch "vtotp Project") { throw "Unexpected LegalCopyright: $($info.LegalCopyright)" }
 
-          $expectedVersion = "${{ steps.version.outputs.pe_version }}"
-          $expectedParsed = [version]$expectedVersion
+          $expectedParsed = [version]"${{ steps.version.outputs.pe_version }}"
+          $fileVersionParsed = [version]"$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
+          if ($fileVersionParsed -ne $expectedParsed) { throw "FileVersion mismatch: expected $expectedParsed, got $fileVersionParsed" }
+          $productVersionParsed = [version]"$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart).$($info.ProductPrivatePart)"
+          if ($productVersionParsed -ne $expectedParsed) { throw "ProductVersion mismatch: expected $expectedParsed, got $productVersionParsed" }
+          Write-Host "Onefile PE metadata verified (version $expectedParsed)"
 
-          $fileVersionRaw = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
-          $fileVersionParsed = [version]$fileVersionRaw
-          if ($fileVersionParsed -ne $expectedParsed) {
-            throw "FileVersion mismatch: expected $expectedParsed (from tag), got $fileVersionParsed (raw: $($info.FileVersion))"
-          }
+      # --- Checksums and artifact upload ---
 
-          $productVersionRaw = "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart).$($info.ProductPrivatePart)"
-          $productVersionParsed = [version]$productVersionRaw
-          if ($productVersionParsed -ne $expectedParsed) {
-            throw "ProductVersion mismatch: expected $expectedParsed (from tag), got $productVersionParsed (raw: $($info.ProductVersion))"
-          }
-
-          Write-Host "FileVersion/ProductVersion verified against tag: $expectedParsed"
-
-      - name: Generate SHA-256 checksum
+      - name: Generate SHA-256 checksums
         shell: pwsh
         run: |
-          Get-FileHash dist\vtotp.exe -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  vtotp.exe" } |
-            Set-Content -NoNewline dist\vtotp.exe.sha256
-          Get-Content dist\vtotp.exe.sha256
+          foreach ($file in @("dist\vtotp.exe", "dist\vtotp-windows-x64.zip")) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $name = Split-Path $file -Leaf
+            "$hash  $name" | Set-Content -NoNewline "$file.sha256"
+            Write-Host "$($file).sha256: $hash"
+          }
 
-      - name: Verify SHA-256 checksum
+      - name: Verify SHA-256 checksums
         shell: pwsh
         run: |
-          $line = Get-Content dist\vtotp.exe.sha256
-          $expected = $line.Split(' ')[0]
-          $actual = (Get-FileHash dist\vtotp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($expected -ne $actual) {
-            throw "SHA-256 checksum mismatch: sidecar has $expected, recomputed $actual"
+          foreach ($file in @("dist\vtotp.exe", "dist\vtotp-windows-x64.zip")) {
+            $line = Get-Content "$file.sha256"
+            $expected = $line.Split(' ')[0]
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expected -ne $actual) {
+              throw "SHA-256 checksum mismatch for $file : sidecar has $expected, recomputed $actual"
+            }
+            Write-Host "$file checksum verified: $actual"
           }
-          Write-Host "SHA-256 checksum verified: $actual"
 
-      - name: Upload vtotp.exe artifact
+      - name: Upload release assets artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: vtotp-exe
-          path: dist/vtotp.exe
-          if-no-files-found: error
-
-      - name: Upload vtotp.exe.sha256 artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: vtotp-exe-sha256
-          path: dist/vtotp.exe.sha256
+          name: vtotp-release-assets
+          path: |
+            dist/vtotp.exe
+            dist/vtotp.exe.sha256
+            dist/vtotp-windows-x64.zip
+            dist/vtotp-windows-x64.zip.sha256
           if-no-files-found: error
 
   release:
@@ -135,36 +221,45 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download vtotp.exe artifact
+      - name: Download release assets artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: vtotp-exe
-          path: dist
-
-      - name: Download vtotp.exe.sha256 artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: vtotp-exe-sha256
+          name: vtotp-release-assets
           path: dist
 
       - name: Verify downloaded artifacts before publishing
         shell: pwsh
         run: |
-          if (-not (Test-Path dist\vtotp.exe)) { throw "dist\vtotp.exe is missing" }
-          if (-not (Test-Path dist\vtotp.exe.sha256)) { throw "dist\vtotp.exe.sha256 is missing" }
-          $line = Get-Content dist\vtotp.exe.sha256
-          $expected = $line.Split(' ')[0]
-          $actual = (Get-FileHash dist\vtotp.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($expected -ne $actual) {
-            throw "SHA-256 checksum mismatch after artifact download: sidecar has $expected, recomputed $actual"
+          $pairs = @(
+            @("dist\vtotp.exe", "dist\vtotp.exe.sha256"),
+            @("dist\vtotp-windows-x64.zip", "dist\vtotp-windows-x64.zip.sha256")
+          )
+          foreach ($pair in $pairs) {
+            $target = $pair[0]
+            $sidecar = $pair[1]
+            if (-not (Test-Path $target)) { throw "$target is missing" }
+            if (-not (Test-Path $sidecar)) { throw "$sidecar is missing" }
+            $line = Get-Content $sidecar
+            $expected = $line.Split(' ')[0]
+            $actual = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expected -ne $actual) {
+              throw "SHA-256 checksum mismatch after artifact download for $target : sidecar has $expected, recomputed $actual"
+            }
+            Write-Host "$target checksum re-verified: $actual"
           }
-          Write-Host "SHA-256 checksum re-verified after download: $actual"
 
-      - name: Upload vtotp.exe to GitHub Release
+      - name: Publish GitHub Release (pre-release)
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          # New tags always publish as a pre-release first (REQUIREMENTS.md
+          # 4.4.6); promotion to "Latest" happens manually, without
+          # rebuilding, once the binaries have cleared AV false-positive
+          # review: `gh release edit <tag> --latest --prerelease=false`.
+          prerelease: true
           files: |
             dist/vtotp.exe
             dist/vtotp.exe.sha256
+            dist/vtotp-windows-x64.zip
+            dist/vtotp-windows-x64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -77,26 +77,42 @@ jobs:
       - name: Verify standalone build (init smoke test)
         shell: pwsh
         run: |
-          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "standalone-home"
-          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
-
+          # Run against the runner's real, untouched $env:USERPROFILE.
+          # Overriding USERPROFILE here previously caused the onefile
+          # bootstrap to crash with 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN)
+          # when it queried Win32 shell APIs for known-folder paths; the
+          # standalone build doesn't need that either.
           $exePath = Join-Path "${{ steps.standalone_dir.outputs.standalone_dir }}" "vtotp.exe"
-          $keyPath = "$env:RUNNER_TEMP\vtotp-standalone-smoke.key"
+          $keyPath = "$env:RUNNER_TEMP\vtotp-smoke.key"
           $configDir = Join-Path $env:USERPROFILE ".vtotp"
           $configPath = Join-Path $configDir "config.json"
           $storagePath = Join-Path $configDir "vtotp-secrets.enc"
 
-          $output = & $exePath init --key $keyPath 2>&1 | Out-String
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) { throw "standalone vtotp init failed with exit code $LASTEXITCODE" }
-          if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
-          $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
-          if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
-          if (-not (Test-Path $configPath)) { throw "config.json was not created" }
-          if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
-          if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
+          # Clean up any leftover test artifacts from a previous run before starting.
+          Remove-Item -Path $keyPath -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path $configPath -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path $storagePath -Force -ErrorAction SilentlyContinue
+
+          try {
+            $output = & $exePath init --key $keyPath 2>&1 | Out-String
+            Write-Host $output
+            if ($LASTEXITCODE -ne 0) { throw "standalone vtotp init failed with exit code $LASTEXITCODE" }
+            if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
+            $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
+            if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
+            if (-not (Test-Path $configPath)) { throw "config.json was not created" }
+            if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
+            if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
+          }
+          finally {
+            # Leave the runner's real user profile clean, and avoid
+            # colliding with the onefile smoke test that follows.
+            Remove-Item -Path $keyPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $storagePath -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Verify standalone build PE metadata
         shell: pwsh
@@ -144,7 +160,7 @@ jobs:
 
       - name: Build vtotp (onefile) with Nuitka
         run: |
-          python -m nuitka --standalone --onefile --onefile-tempdir-spec="{CACHE_DIR}/{COMPANY}/{PRODUCT}/{VERSION}" --onefile-no-compression --assume-yes-for-downloads --output-dir=dist/onefile --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
+          python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=dist/onefile --output-filename=vtotp --include-package=vtotp --include-package=cryptography --company-name="vtotp Project" --product-name="vtotp CLI" --file-version=${{ steps.version.outputs.pe_version }} --product-version=${{ steps.version.outputs.pe_version }} --file-description="Custom CLI TOTP Authenticator" --copyright="Copyright (c) vtotp Project" src/vtotp/__main__.py
 
       - name: Place onefile executable at dist\vtotp.exe
         shell: pwsh
@@ -160,25 +176,40 @@ jobs:
       - name: Verify onefile build (init smoke test)
         shell: pwsh
         run: |
-          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "onefile-home"
-          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
-
-          $keyPath = "$env:RUNNER_TEMP\vtotp-onefile-smoke.key"
+          # Run against the runner's real, untouched $env:USERPROFILE. See
+          # the standalone smoke test step above for why: overriding
+          # USERPROFILE previously crashed the onefile bootstrap with
+          # 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) when it queried Win32
+          # shell APIs for known-folder paths.
+          $keyPath = "$env:RUNNER_TEMP\vtotp-smoke.key"
           $configDir = Join-Path $env:USERPROFILE ".vtotp"
           $configPath = Join-Path $configDir "config.json"
           $storagePath = Join-Path $configDir "vtotp-secrets.enc"
 
-          $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) { throw "onefile vtotp init failed with exit code $LASTEXITCODE" }
-          if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
-          $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
-          if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
-          if (-not (Test-Path $configPath)) { throw "config.json was not created" }
-          if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
-          if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
+          # Clean up any leftover test artifacts from a previous run before starting.
+          Remove-Item -Path $keyPath -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path $configPath -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path $storagePath -Force -ErrorAction SilentlyContinue
+
+          try {
+            $output = dist\vtotp.exe init --key $keyPath 2>&1 | Out-String
+            Write-Host $output
+            if ($LASTEXITCODE -ne 0) { throw "onefile vtotp init failed with exit code $LASTEXITCODE" }
+            if (-not (Test-Path $keyPath)) { throw "Key file was not created" }
+            $keyBytes = [System.IO.File]::ReadAllBytes($keyPath)
+            if ($keyBytes.Length -ne 32) { throw "Key file is not 32 bytes (got $($keyBytes.Length))" }
+            if (-not (Test-Path $configPath)) { throw "config.json was not created" }
+            if (-not (Test-Path $storagePath)) { throw "Storage file was not created" }
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($config.key_path -ne $keyPath) { throw "config.json does not reference key file" }
+            if ($output -match "Traceback" -or $output -match "Error:") { throw "Unexpected error or traceback in output" }
+          }
+          finally {
+            # Leave the runner's real user profile clean.
+            Remove-Item -Path $keyPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $storagePath -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Verify onefile build PE metadata
         shell: pwsh

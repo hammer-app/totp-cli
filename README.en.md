@@ -40,7 +40,7 @@ vtotp ships in **three distribution formats**, so you can pick the one that fits
 | Format | Artifact | Startup speed | Security characteristics | Recommended for |
 | --- | --- | --- | --- | --- |
 | ① **Standalone ZIP** (recommended) | `vtotp-windows-x64.zip` (a folder of files) | **Instant** (no perceptible lag; no extraction happens at runtime) | Doesn't drop files into a temp folder at runtime, so it's the least likely to trigger AV heuristics | Users who call `vtotp` from a terminal all day and want it on `PATH` for the fastest possible startup |
-| ② **Onefile EXE** | `vtotp.exe` (a single file) | Extraction overhead (startup delay on initial run or under security scanning; a fixed extraction cache reduces this on subsequent runs) | Extracts DLLs to a temp folder at runtime, so it's more exposed to AV scanning/detection | Users who want a single `.exe` they can drop on a USB drive or into any folder, with no `PATH` setup or unpacking |
+| ② **Onefile EXE** | `vtotp.exe` (a single file) | Extraction overhead (startup delay due to runtime extraction or security scanning) | Extracts DLLs to a temp folder at runtime, so it's more exposed to AV scanning/detection | Users who want a single `.exe` they can drop on a USB drive or into any folder, with no `PATH` setup or unpacking |
 | ③ **Source install** (Python package) | `pip install -e .` | Normal (standard Python runtime startup) | Depends on the OS's own Python runtime | Linux/macOS users, and developers who want to read or modify the code directly |
 
 ### ① Standalone ZIP (recommended, fastest)
@@ -66,7 +66,7 @@ Download the single-file `vtotp.exe` from the same [Releases page](https://githu
 C:\Tools\vtotp\vtotp.exe --version
 ```
 
-The first run, or a run intercepted by a security product's scan, may take a moment to self-extract, but there's no folder to manage or install step — just one portable file.
+Runs, especially when intercepted by a security product's scan, may take a moment to self-extract, but there's no folder to manage or install step — just one portable file.
 
 Neither format requires pip or a virtual environment. Everywhere the quickstart below shows `vtotp`, you can substitute `vtotp.exe`.
 

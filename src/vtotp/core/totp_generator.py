@@ -17,6 +17,7 @@ import time
 from typing import Callable
 
 from vtotp.domain.exceptions import InvalidSecretError
+from vtotp.i18n.catalog import MsgKey
 
 #: 正規化後のBase32シークレットとして許容される文字集合（RFC 4648、末尾の`=`パディングを含む）。
 _BASE32_PATTERN = re.compile(r"^[A-Z2-7]+=*$")
@@ -61,18 +62,14 @@ def _normalize_and_validate(secret: str) -> str:
     """
     normalized = _normalize_secret(secret)
     if not normalized:
-        raise InvalidSecretError("TOTPシークレットが空です")
+        raise InvalidSecretError(MsgKey.SECRET_EMPTY)
     if not _BASE32_PATTERN.match(normalized):
-        raise InvalidSecretError(
-            "TOTPシークレットの形式が不正です（Base32形式の文字列である必要があります）"
-        )
+        raise InvalidSecretError(MsgKey.SECRET_INVALID_FORMAT)
     padded = _pad_base32(normalized)
     try:
         base64.b32decode(padded, casefold=True)
     except binascii.Error as exc:
-        raise InvalidSecretError(
-            "TOTPシークレットの形式が不正です（Base32形式の文字列である必要があります）"
-        ) from exc
+        raise InvalidSecretError(MsgKey.SECRET_INVALID_FORMAT) from exc
     return padded
 
 

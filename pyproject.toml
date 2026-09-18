@@ -33,3 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[tool.black]
+target-version = ["py311"]
+line-length = 88

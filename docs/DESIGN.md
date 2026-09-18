@@ -85,7 +85,7 @@ vtotp/
 - rekeyはconfig.jsonのkey_pathで指定された鍵ファイルを更新し、既存データを新鍵で再暗号化する
 - initで--keyが指定されない場合は、対話入力で鍵ファイルの出力先を必ず指定させる
 - initとrekeyで生成する鍵の保存先は、ツール内の暗黙の既定パスにしない
-- config.jsonを書き換えるのはinitだけとし、initでも永続化対象はkey_pathだけとする
+- config.jsonの更新はinitによる初期設定と、configによるlanguage更新に限定する
 - --keyと--storageは、config.jsonへ保存しない一時的な実行時指定とする
 - rekeyでは、更新前の鍵ファイルを世代番号付きで退避し、暗号化済みシークレットデータのローテーション保存は行わない
 - 鍵ファイルの保持上限は3世代とし、`<key_path>.1` から `<key_path>.3` までを保持する
@@ -613,18 +613,19 @@ vtotp config
 
 `--key` と `--storage` は、暗号鍵ファイルと暗号化済みTOTPシークレットファイルのパスを実行時に一時指定するオプションとして正式に提供する。`--key` を指定しない場合は、`VTOTP_KEY_PATH`、`config.json` の `key_path` の順に解決する。`--storage` を指定しない場合は、`config.json` の `storage_path`、設定ファイルと同じディレクトリの `vtotp-secrets.enc` の順に解決する。これらのオプションによる変更は実行中だけ有効で、`config.json` へ保存しない。
 
-これらのオプションは、サブコマンド内の位置引数 `SERVICE` と前後を入れ替えて指定できる。`argparse` のサブパーサーでは、`SERVICE` を位置引数として定義し、`--key`、`--storage`、`--force` などをオプション引数として定義する。
+これらのオプションは、サブコマンドまたはサービス名の後方にのみ配置する。第一引数を固定するため、`SERVICE`より前の配置は受け付けない。
 
 ```text
-# いずれも同じ意味
+# 正式な形式
 vtotp get github --key PATH --storage PATH
-vtotp get --key PATH --storage PATH github
-
 vtotp rm github --force --key PATH --storage PATH
-vtotp rm --force --key PATH --storage PATH github
+
+# 非サポート（終了コード2）
+vtotp get --key PATH github
+vtotp rm --force --key PATH github
 ```
 
-`SERVICE` を最後に置く形式を正式にサポートする。ただし、`--key` または `--storage` の値は必ず同じ引数の直後に指定する。
+`SERVICE`はサブコマンド直後の必須位置引数とし、`--key`、`--storage`、`--force`などはその後方だけで受け付ける。
 
 `init` の `--key` は、新規鍵ファイルの出力先を指定する。`init` では `--storage` を受け付けない。暗号化データの保存先は `config.json` の `storage_path`、または未指定時の既定値（設定ファイルと同じディレクトリの `vtotp-secrets.enc`）を使用し、初期化時に既存の暗号化データを復号しない。
 
@@ -1029,36 +1030,81 @@ CI は `pip install -e ".[build]"` でビルド依存を導入し、アプリケ
 
 ### 18.4 GitHub Actions リリースパイプライン
 
-`.github/workflows/release.yml` はタグ `v*` を起点とし、次の順序で実行する。
+`.github/workflows/release.yml` はタグ `v*` を起点とし、Windows x64向けに
+Standalone ZIP版とOnefile EXE版を同一リリースで生成する。PEの
+`FileVersion`/`ProductVersion`はタグの3要素を抽出し、末尾のビルド番号
+（プライベートパート）を常に`.0`に固定した4要素形式として埋め込む。
+タグはプロモーション方式に従い、最初から正式版タグ名（`vX.Y.Z`、例:
+`v0.2.0`）を使用し、プレリリース識別子（`-preview.x`、`-rc.x`等）は付与しない。
+したがって、正式な`v0.2.0`タグは`0.2.0.0`として埋め込まれる。なお、CIは
+防御的設計として、誤ってハイフン付きタグがpushされた場合でも安定版部分を切り捨て、
+`0.2.0.0`のような数値4要素形式へ正規化する。
+
+実行順序は次のとおりとする。
 
 ```text
 1. actions/checkout
 2. actions/setup-python（Python 3.11）
 3. windows-latest の MSVC ツールチェーンを確認
 4. pip install -e ".[build]"
-5. 上記の Nuitka コマンドで src/vtotp/__main__.py をビルド
-6. dist/vtotp.exe の存在を確認
-7. バイナリスモークテストを実行
-8. dist/vtotp.exe を vtotp-exe という名前で upload-artifact
-9. 成果物を GitHub Release の vtotp.exe として公開
+5. Nuitkaの`--standalone`でフォルダ形式をビルド
+6. Standaloneフォルダを`vtotp-windows-x64.zip`へパッケージ化
+7. Nuitkaの`--standalone --onefile`で`vtotp.exe`をビルド
+8. Standalone本体、ZIP展開後の実行ファイル、Onefile実行ファイルをスモークテスト
+9. 両成果物と各SHA-256 sidecarを生成し、再計算で検証
+10. EXE、ZIP、各sidecarをActions artifactへアップロード
+11. Actions artifactをダウンロードして再検証
+12. GitHub Releaseへ常にPre-releaseとして公開
 ```
 
-Windows リリースの成果物パスは常に `dist/vtotp.exe` とし、アップロード設定には
-`if-no-files-found: error` を指定する。これにより、ビルド自体が成功しても出力名や
-出力ディレクトリが変わった場合はリリースを失敗させる。Linux/macOS の成果物を追加
-する場合はプラットフォーム別ジョブを分け、`dist/vtotp` とそれぞれの実行環境で検証
-した成果物だけを公開する。
+Windowsリリースの必須成果物は次の4ファイルとする。
+
+```text
+dist/vtotp.exe
+dist/vtotp.exe.sha256
+dist/vtotp-windows-x64.zip
+dist/vtotp-windows-x64.zip.sha256
+```
+
+各成果物のアップロード設定には`if-no-files-found: error`を指定する。これにより、
+ビルド自体が成功しても出力名、ZIP内容、チェックサムsidecarのいずれかが欠落した
+場合はリリースを失敗させる。Linux/macOSの成果物を追加する場合はプラットフォーム
+別ジョブを分け、それぞれの実行環境で検証した成果物だけを公開する。
+
+初期公開は常にGitHub ReleaseのPre-releaseとして行う。AV/SEPの誤検知除外申請、
+実機検証、チェックサム確認が完了した後、同じタグと同じ成果物を再ビルドせずに、
+`gh release edit <tag> --latest --prerelease=false`またはGitHub UIで手動プロモート
+してLatestへ昇格させる。
 
 ### 18.5 バイナリスモークテスト
 
 スモークテストは、成果物をアップロードする前にビルドした実行ファイルそのものへ
-実行する。各コマンドは非対話で実行し、終了コード `0` を必須とする。
+実行する。Standalone本体、ZIPを一時ディレクトリへ展開した後の実行ファイル、
+Onefile EXEの3対象について、各コマンドの終了コード`0`を必須とする。
 
 ```powershell
+# Standalone本体
+$standaloneExe --version
+$standaloneExe --help
+$standaloneExe init --key "$env:RUNNER_TEMP\vtotp-standalone.key"
+
+# ZIP展開後（配布物そのもの）
+Expand-Archive dist\vtotp-windows-x64.zip -DestinationPath "$env:RUNNER_TEMP\vtotp-zip"
+$zipExe = Join-Path "$env:RUNNER_TEMP\vtotp-zip" "vtotp.exe"
+$zipExe --version
+$zipExe --help
+$zipExe init --key "$env:RUNNER_TEMP\vtotp-zip.key"
+
+# Onefile EXE
 dist\vtotp.exe --version
 dist\vtotp.exe --help
-dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-onefile.key"
 ```
+
+各対象について、`init`後に32バイト鍵、`config.json`、暗号化ストレージが生成され、
+出力に鍵バイト列・TOTPシークレット・トレースバック・未処理エラーが含まれないことも
+検証する。ZIP展開後のテストは、圧縮前のStandaloneディレクトリだけでなく、実際に
+配布するZIPが欠損なく実行可能であることを保証する。
 
 `init` の検証では、次の条件を追加で確認する。
 
@@ -1070,18 +1116,256 @@ dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
 - Python トレースバックや未処理の例外が出力されない
 ```
 
-CI の一時ディレクトリを使い、開発者のホームディレクトリやリポジトリへ秘密情報を
-生成しない。Windows では PowerShell の `$LASTEXITCODE` または Actions のコマンド終了
-コードで判定し、`dist/vtotp.exe` を直接起動することで Python 実行時ではなく Nuitka
-生成物を検証する。
+CIの一時ディレクトリを使い、開発者のホームディレクトリやリポジトリへ秘密情報を
+生成しない。WindowsではPowerShellの`$LASTEXITCODE`またはActionsのコマンド終了
+コードで判定し、Python実行時ではなく各Nuitka生成物を直接起動して検証する。
 
 ### 18.6 設計上の完了条件
 
 ```text
 - PyInstallerの実行、依存、CIステップがリポジトリから除去されている
-- Windows成果物がdist/vtotp.exeとして生成される
-- Nuitkaのstandalone/onefileビルドが毎回再現可能である
-- cryptographyを含む暗号処理がバイナリ単体で動作する
-- --version、--help、initのスモークテストがCIで成功する
+- Windowsのハイブリッド成果物（`vtotp-windows-x64.zip`、`vtotp.exe`）と、
+    それぞれのSHA-256 sidecarが生成・検証・公開される
+- Standalone/OnefileのNuitkaビルドが毎回再現可能である
+- 両形態およびZIP展開後の実行ファイルで、cryptographyを含む暗号処理が動作する
+- Standalone本体、ZIP展開後、Onefileそれぞれの`--version`、`--help`、`init`がCIで成功する
+- Windows PEの会社名、製品名、説明、著作権が設定され、バージョンが数値4要素で
+    末尾`.0`固定（`X.Y.Z.0`）としてタグ由来値と一致する
+- 初期リリースが常にPre-releaseで公開され、検証・誤検知除外後に再ビルドなしで
+    Latestへ手動プロモートできる
 - バイナリ実行時もZero Leakage Ruleと終了コード体系が維持される
 ```
+
+## 19. 多言語化詳細設計
+
+### 19.1 パッケージ構成と型契約
+
+実行時に読み込む翻訳ファイルを持たず、翻訳文をPythonコードとしてNuitkaの対象に含める。
+新設するパッケージは次の構成とする。
+
+```text
+src/vtotp/i18n/
+├── __init__.py
+├── catalog.py
+└── resolver.py
+```
+
+`catalog.py` は次の型を公開する。`MsgKey` は全てのユーザー向けメッセージを列挙し、
+辞書のキーを文字列リテラルで重複定義しない。
+
+```python
+from enum import StrEnum
+from typing import Mapping
+
+
+class MsgKey(StrEnum):
+    APP_DESCRIPTION = "app_description"
+    KEY_NOT_FOUND = "key_not_found"
+    INVALID_KEY = "invalid_key"
+    STORAGE_CORRUPTED = "storage_corrupted"
+    SERVICE_NOT_FOUND = "service_not_found"
+    INVALID_SECRET = "invalid_secret"
+    COMMAND_PARSE_ERROR = "command_parse_error"
+    CONFIG_SUMMARY = "config_summary"
+    CONFIG_LANGUAGE_UPDATED = "config_language_updated"
+
+
+Catalog = Mapping[MsgKey, str]
+EN_CATALOG: Catalog = {...}
+JA_CATALOG: Catalog = {...}
+SUPPORTED_LANGUAGES = ("en", "ja")
+```
+
+英語辞書を既定かつフォールバックとし、日本語辞書も全 `MsgKey` を実装する。
+辞書はモジュールロード時に一度だけ生成し、解決処理は辞書参照と文字列フォーマットだけに
+限定する。外部ファイル、`gettext` の `.mo`、実行時展開用JSON、ネットワーク取得は使用しない。
+
+### 19.2 言語解決
+
+`LanguageResolver.resolve()` は次の順序で候補を評価する。
+
+```text
+1. コマンド引数 --lang/-l
+2. 環境変数 VTOTP_LANG
+3. config.json の language
+4. OSロケール（LANG、LC_ALL、Windowsの既定ロケール）
+5. en
+```
+
+値は小文字化し、`en-US`、`ja-JP` のようなロケールは主要言語コードへ正規化する。
+`en` と `ja` 以外、空文字、不正型は候補として無視し、最終的に必ず `en` を返す。
+`init` は解決済み言語を初期値として提示し、`-l/--lang` または対話回答を
+`config.json` の `language` に保存する。`config` の表示は解決済み言語を使用する。
+
+`config -l <en|ja>` と `config set language <en|ja>` は同一の更新ユースケースへ委譲し、
+更新対象を `language` のみに限定する。更新は一時ファイルと `os.replace` を使い、既存の
+`key_path`、`storage_path`、未知の設定項目を保持する。
+
+### 19.3 表示とZero Leakage
+
+表示層は `format_message(key: MsgKey, language: str, **context: str) -> str` を利用する。
+`formatter.py` は `MsgKey` と安全な表示コンテキストだけを受け取り、例外文字列をそのまま
+表示しない。秘密情報（鍵バイト列、シークレット、暗号文、復号JSON）はコンテキストへ
+渡さず、パス名・サービス名も必要な場合だけ含める。OS例外の生メッセージも表示せず、
+対応する `MsgKey` と安全なパス表示へ変換する。
+
+## 20. CLI構文と引数解析の正規仕様
+
+### 20.1 第一引数固定と後置オプション
+
+`CliHandler.normalize_argv()` は、空入力をヘルプへ変換し、第一引数だけを判定する。
+第一引数は予約サブコマンドまたはサービス名でなければならない。`-h`、`--help`、
+`--version` だけは単独情報オプションとして例外扱いする。第一引数が `-l`、`-k`、
+`--storage` などの値付きオプションの場合は、サービス名へのフォールバックを行わず、
+終了コード2の `CommandParseError` とする。
+
+正規形は次のとおりである。
+
+```text
+vtotp <command-or-service> [SERVICE] [options...]
+```
+
+`SERVICE` を必要とするコマンドではサブコマンド直後を必須位置引数とし、オプションは
+その後方だけで受け付ける。`vtotp get --key PATH github` や `vtotp --lang ja init` は
+非サポートであり、解析前に拒否する。`argparse` の親パーサーへ実行オプションを置かず、
+各サブパーサーへ定義することで前置配置を防ぐ。
+
+### 20.2 コマンド契約
+
+```text
+vtotp init [--key PATH] [--lang en|ja]
+vtotp generate SERVICE [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp get SERVICE [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp add SERVICE [--secret SECRET] [--issuer ISSUER] [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp remove SERVICE [--force] [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp list [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp rekey [--key PATH] [--storage PATH] [--lang en|ja]
+vtotp config [-l|--lang en|ja]
+vtotp config set language en|ja [--lang en|ja]
+```
+
+`-g`、`rm`、`ls` はそれぞれ既存の別名として同じ契約へ正規化する。`config -l/--lang`
+は `config set language` と同等に `language` を保存する。設定更新時の表示言語も、
+指定された新言語を使用する。
+
+## 21. ドメイン例外と表示層の連携
+
+ドメイン例外は表示文を保持しない。各例外は終了コード、`MsgKey`、および秘密情報を
+含まない構造化コンテキストを保持する。
+
+```python
+class TotpCliError(Exception):
+    exit_code: int
+    message_key: MsgKey
+    context: Mapping[str, str]
+
+
+raise KeyNotFoundError(context={"path": display_path})
+```
+
+`display_path` は引用符・制御文字を除去した表示用値であり、鍵の内容ではない。
+`CliHandler` は例外を捕捉して `formatter.format_error(error, language)` に渡し、終了コード
+を維持して `stderr` へ出力する。`str(error)`、traceback、低レベル例外の生メッセージを
+ユーザー出力へ流さない。これにより、core/domain層は言語に依存せず、表示層だけが
+ローカライズ責務を持つ。
+
+## 22. PEメタデータとリリースCI
+
+### 22.1 NuitkaのWindows仕様
+
+`.github/workflows/release.yml` のWindowsビルドは、タグ名から正規化したアプリケーション
+バージョンを取得し、StandaloneとOnefileの両Nuitkaコマンドへ次のメタデータを明示する。
+
+```text
+--company-name="vtotp Project"
+--product-name="vtotp CLI"
+--file-version=<VERSION>
+--product-version=<VERSION>
+--file-description="Custom CLI TOTP Authenticator"
+--copyright="Copyright (c) vtotp Project"
+```
+
+`--output-filename=vtotp.exe`、`--standalone`、`--onefile`、`--include-package=vtotp`、
+`--include-package=cryptography` を維持する。PEメタデータはレピュテーション改善の
+補助情報であり、コード署名や暗号化の代替ではない。正式リリースでは署名導入を別途
+検討する。
+
+Standalone版は`--standalone`で生成した実行ファイルと依存ファイル一式を
+`vtotp-windows-x64.zip`へ格納する。Onefile版は`--standalone --onefile`で生成し、
+`dist/vtotp.exe`として公開する。タグにプレリリース識別子が含まれる場合も、PEには
+安定版部分だけを使用し、`X.Y.Z.0`の4要素数値形式へ正規化する。
+
+### 22.2 チェックサムと成果物
+
+Windowsの両成果物をビルド・スモークテストした後、同じ`dist/`内で各ファイルに対して
+SHA-256 sidecarを生成する。
+
+```powershell
+foreach ($file in @("dist\vtotp.exe", "dist\vtotp-windows-x64.zip")) {
+    $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    $name = Split-Path $file -Leaf
+    "$hash  $name" | Set-Content -NoNewline "$file.sha256"
+}
+```
+
+各sidecarは64桁の小文字SHA-256、二つの空白、対象ファイル名の形式とする。EXE、ZIP、
+各`.sha256`をGitHub ReleaseおよびActions artifactへ添付し、CIでファイルの存在と
+ハッシュ再計算結果を検証する。アップロード対象が不足した場合は
+`if-no-files-found: error`で失敗させる。
+
+### 22.3 リリース順序
+
+```text
+checkout -> setup-python -> pip install -e ".[build]"
+-> standalone build -> standalone smoke test -> ZIP化 -> ZIP展開後 smoke test
+-> onefile build -> onefile smoke test -> PE metadata verification
+-> 2成果物 + 2 sidecarのSHA-256生成・検証
+-> artifact download後の再検証 -> GitHub ReleaseへPre-release公開
+-> AV/実機検証 -> 再ビルドなしで手動Latestプロモート
+```
+
+スモークテストは一時ホームディレクトリで実行し、stdoutにTOTP以外の秘密情報、stderrに
+鍵バイト列・シークレット・tracebackがないことを確認する。プレビュータグでは同じ検証を
+行ったうえでPre-releaseとして公開し、実機検証と誤検知除外申請の完了後に正式タグへ
+昇格する。
+
+## 23. i18n・構文・パッケージングのテスト設計
+
+### 23.1 カタログ契約テスト
+
+```text
+- set(EN_CATALOG) == set(MsgKey)
+- set(JA_CATALOG) == set(MsgKey)
+- 各キーの英日プレースホルダー集合が一致する
+- 空文字、未翻訳のキー、未知の言語で例外を発生させない
+- format_message() が秘密情報を受け取らないAPI契約を満たす
+```
+
+プレースホルダー集合は正規表現ではなく `string.Formatter().parse()` で抽出し、書式名を
+比較する。これにより `{path}` と `{service}` の不足・余剰を検知する。
+
+### 23.2 CLI・CIテスト
+
+```text
+- --lang > VTOTP_LANG > config.language > OS locale > en の解決順
+- en-US/ja-JPの正規化と不正値のenフォールバック
+- initの言語保存とconfigのlanguage更新
+- config -l と config set language の同値性
+- 前置オプションを終了コード2で拒否
+- 第一引数のサービス名フォールバックと予約語衝突
+- 日英の全例外表示が同じ終了コードを返す
+- Nuitka実行ファイルのPEメタデータが期待値と一致する
+- バイナリとSHA-256 sidecarの内容が一致する
+```
+
+既存の `pytest --cov=src/vtotp --cov-fail-under=100` を必須ゲートとし、i18n辞書、
+言語解決の全分岐、構文拒否、CI補助スクリプトを単体テストで網羅する。機密値を含む
+例外・ログ・CI出力がないことも回帰テストに含める。
+
+## 24. 旧記述との整合規則
+
+本章は本設計書の正規仕様である。特に、旧章に残る「`SERVICE` をオプションより後ろへ
+置ける」「configは読み取り専用」「例外が表示文を保持する」という記述は、本章の
+第一引数固定、`config` 言語更新、`MsgKey` + context方式に置き換える。鍵パス・ストレージ
+パスの解決優先順位、AES-256-GCM、atomic保存、終了コード、Zero Leakage Ruleは既存章を
+引き続き適用する。

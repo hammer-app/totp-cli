@@ -9,8 +9,9 @@ DESIGN.md 10章「ServiceRegistry」に基づき、サービスの登録・取�
 
 from __future__ import annotations
 
-from vtotp.domain.exceptions import ServiceNotFoundError
+from vtotp.domain.exceptions import ServiceNotFoundError, TotpCliError
 from vtotp.domain.models import SecretRecord
+from vtotp.i18n.catalog import MsgKey
 
 
 class ServiceRegistry:
@@ -30,13 +31,16 @@ class ServiceRegistry:
 
         サービス名は正規化（前後空白除去・小文字化）したうえで一意性を
         判定し、既に同名のサービスが登録済みの場合は重複登録として
-        :class:`ValueError` を送出する（重複登録防止）。
+        :class:`TotpCliError` を送出する（重複登録防止）。
         """
         normalized_name = self._normalize_service_name(record.service_name)
         if not normalized_name:
-            raise ValueError("サービス名を空にすることはできません")
+            raise TotpCliError(MsgKey.SERVICE_NAME_EMPTY)
         if normalized_name in records:
-            raise ValueError(f"サービスは既に登録されています: {record.service_name}")
+            raise TotpCliError(
+                MsgKey.SERVICE_ALREADY_REGISTERED,
+                context={"service": record.service_name},
+            )
 
         updated = dict(records)
         updated[normalized_name] = SecretRecord(
@@ -61,7 +65,7 @@ class ServiceRegistry:
             return records[normalized_name]
         except KeyError as exc:
             raise ServiceNotFoundError(
-                f"サービスが見つかりません: {service_name}"
+                MsgKey.SERVICE_NOT_FOUND, context={"service": service_name}
             ) from exc
 
     def list_names(self, records: dict[str, SecretRecord]) -> list[str]:
@@ -80,7 +84,9 @@ class ServiceRegistry:
         """
         normalized_name = self._normalize_service_name(service_name)
         if normalized_name not in records:
-            raise ServiceNotFoundError(f"サービスが見つかりません: {service_name}")
+            raise ServiceNotFoundError(
+                MsgKey.SERVICE_NOT_FOUND, context={"service": service_name}
+            )
 
         updated = dict(records)
         del updated[normalized_name]

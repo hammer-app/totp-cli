@@ -39,9 +39,9 @@ vtotp ships in **three distribution formats**, so you can pick the one that fits
 
 | Format | Artifact | Startup speed | Security characteristics | Recommended for |
 | --- | --- | --- | --- | --- |
-| ① **Standalone ZIP** (recommended) | `vtotp-windows-x64.zip` (a folder of files) | **Instant** (~0.05–0.1s). No extraction happens at runtime | Doesn't drop files into a temp folder at runtime, so it's the least likely to trigger AV heuristics | Users who call `vtotp` from a terminal all day and want it on `PATH` for the fastest possible startup |
-| ② **Onefile EXE** | `vtotp.exe` (a single file) | First launch (or when a security product intercepts it) may take **~1–3s** to self-extract | Extracts DLLs to a temp folder at runtime, so it's more exposed to AV scanning/detection (a fixed extraction cache speeds up subsequent runs) | Users who want a single `.exe` they can drop on a USB drive or into any folder, with no `PATH` setup or unpacking |
-| ③ **Source install** (Python package) | `pip install -e .` | Ordinary Python startup (~0.1–0.2s) | Depends on the OS's own Python runtime | Linux/macOS users, and developers who want to read or modify the code directly |
+| ① **Standalone ZIP** (recommended) | `vtotp-windows-x64.zip` (a folder of files) | **Instant** (no perceptible lag; no extraction happens at runtime) | Doesn't drop files into a temp folder at runtime, so it's the least likely to trigger AV heuristics | Users who call `vtotp` from a terminal all day and want it on `PATH` for the fastest possible startup |
+| ② **Onefile EXE** | `vtotp.exe` (a single file) | Extraction overhead (startup delay on initial run or under security scanning; a fixed extraction cache reduces this on subsequent runs) | Extracts DLLs to a temp folder at runtime, so it's more exposed to AV scanning/detection | Users who want a single `.exe` they can drop on a USB drive or into any folder, with no `PATH` setup or unpacking |
+| ③ **Source install** (Python package) | `pip install -e .` | Normal (standard Python runtime startup) | Depends on the OS's own Python runtime | Linux/macOS users, and developers who want to read or modify the code directly |
 
 ### ① Standalone ZIP (recommended, fastest)
 
@@ -55,7 +55,7 @@ Expand-Archive vtotp-windows-x64.zip -DestinationPath C:\Tools\vtotp
 C:\Tools\vtotp\vtotp.exe --version
 ```
 
-The folder contains `vtotp.exe` plus its dependent DLLs and the Python runtime. Because nothing is extracted at runtime, this is the fastest and lowest-risk way to start vtotp.
+The folder contains `vtotp.exe` plus its dependent DLLs and the Python runtime. Because nothing is extracted at runtime, this starts instantly and is the lowest-risk way to run vtotp.
 
 ### ② Onefile EXE (portable, single file)
 
@@ -66,7 +66,7 @@ Download the single-file `vtotp.exe` from the same [Releases page](https://githu
 C:\Tools\vtotp\vtotp.exe --version
 ```
 
-The first run may take a few seconds while it self-extracts, but there's no folder to manage or install step — just one portable file.
+The first run, or a run intercepted by a security product's scan, may take a moment to self-extract, but there's no folder to manage or install step — just one portable file.
 
 Neither format requires pip or a virtual environment. Everywhere the quickstart below shows `vtotp`, you can substitute `vtotp.exe`.
 

@@ -122,6 +122,24 @@ jobs:
           if (-not (Test-Path dist\vtotp-windows-x64.zip)) { throw "dist\vtotp-windows-x64.zip was not created" }
           Write-Host "Created dist\vtotp-windows-x64.zip"
 
+      - name: Verify standalone ZIP archive (extract and smoke test)
+        shell: pwsh
+        run: |
+          # Smoke-test the actual vtotp-windows-x64.zip artifact end users
+          # will download, not just the pre-packaging dist folder: extract
+          # it fresh and confirm the resulting vtotp.exe still runs.
+          $extractDir = Join-Path $env:RUNNER_TEMP "zip-smoke-extract"
+          Expand-Archive -Path dist\vtotp-windows-x64.zip -DestinationPath $extractDir -Force
+
+          $exePath = Join-Path $extractDir "vtotp.exe"
+          if (-not (Test-Path $exePath)) { throw "vtotp.exe was not found after extracting dist\vtotp-windows-x64.zip to $extractDir" }
+
+          & $exePath --version
+          if ($LASTEXITCODE -ne 0) { throw "extracted vtotp.exe --version failed with exit code $LASTEXITCODE" }
+          & $exePath --help
+          if ($LASTEXITCODE -ne 0) { throw "extracted vtotp.exe --help failed with exit code $LASTEXITCODE" }
+          Write-Host "ZIP archive smoke test passed: $exePath"
+
       # --- Onefile (single .exe) build: portable, self-extracting. ---
 
       - name: Build vtotp (onefile) with Nuitka

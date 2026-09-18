@@ -1030,36 +1030,77 @@ CI は `pip install -e ".[build]"` でビルド依存を導入し、アプリケ
 
 ### 18.4 GitHub Actions リリースパイプライン
 
-`.github/workflows/release.yml` はタグ `v*` を起点とし、次の順序で実行する。
+`.github/workflows/release.yml` はタグ `v*` を起点とし、Windows x64向けに
+Standalone ZIP版とOnefile EXE版を同一リリースで生成する。PEの
+`FileVersion`/`ProductVersion`はタグの安定版部分を3要素へ正規化し、末尾の
+ビルド番号（プライベートパート）を常に`.0`に固定する。例えば
+`v0.2.0`と`v0.2.0-preview.1`は、いずれも`0.2.0.0`として埋め込む。
+
+実行順序は次のとおりとする。
 
 ```text
 1. actions/checkout
 2. actions/setup-python（Python 3.11）
 3. windows-latest の MSVC ツールチェーンを確認
 4. pip install -e ".[build]"
-5. 上記の Nuitka コマンドで src/vtotp/__main__.py をビルド
-6. dist/vtotp.exe の存在を確認
-7. バイナリスモークテストを実行
-8. dist/vtotp.exe を vtotp-exe という名前で upload-artifact
-9. 成果物を GitHub Release の vtotp.exe として公開
+5. Nuitkaの`--standalone`でフォルダ形式をビルド
+6. Standaloneフォルダを`vtotp-windows-x64.zip`へパッケージ化
+7. Nuitkaの`--standalone --onefile`で`vtotp.exe`をビルド
+8. Standalone本体、ZIP展開後の実行ファイル、Onefile実行ファイルをスモークテスト
+9. 両成果物と各SHA-256 sidecarを生成し、再計算で検証
+10. EXE、ZIP、各sidecarをActions artifactへアップロード
+11. Actions artifactをダウンロードして再検証
+12. GitHub Releaseへ常にPre-releaseとして公開
 ```
 
-Windows リリースの成果物パスは常に `dist/vtotp.exe` とし、アップロード設定には
-`if-no-files-found: error` を指定する。これにより、ビルド自体が成功しても出力名や
-出力ディレクトリが変わった場合はリリースを失敗させる。Linux/macOS の成果物を追加
-する場合はプラットフォーム別ジョブを分け、`dist/vtotp` とそれぞれの実行環境で検証
-した成果物だけを公開する。
+Windowsリリースの必須成果物は次の4ファイルとする。
+
+```text
+dist/vtotp.exe
+dist/vtotp.exe.sha256
+dist/vtotp-windows-x64.zip
+dist/vtotp-windows-x64.zip.sha256
+```
+
+各成果物のアップロード設定には`if-no-files-found: error`を指定する。これにより、
+ビルド自体が成功しても出力名、ZIP内容、チェックサムsidecarのいずれかが欠落した
+場合はリリースを失敗させる。Linux/macOSの成果物を追加する場合はプラットフォーム
+別ジョブを分け、それぞれの実行環境で検証した成果物だけを公開する。
+
+初期公開は常にGitHub ReleaseのPre-releaseとして行う。AV/SEPの誤検知除外申請、
+実機検証、チェックサム確認が完了した後、同じタグと同じ成果物を再ビルドせずに、
+`gh release edit <tag> --latest --prerelease=false`またはGitHub UIで手動プロモート
+してLatestへ昇格させる。
 
 ### 18.5 バイナリスモークテスト
 
 スモークテストは、成果物をアップロードする前にビルドした実行ファイルそのものへ
-実行する。各コマンドは非対話で実行し、終了コード `0` を必須とする。
+実行する。Standalone本体、ZIPを一時ディレクトリへ展開した後の実行ファイル、
+Onefile EXEの3対象について、各コマンドの終了コード`0`を必須とする。
 
 ```powershell
+# Standalone本体
+$standaloneExe --version
+$standaloneExe --help
+$standaloneExe init --key "$env:RUNNER_TEMP\vtotp-standalone.key"
+
+# ZIP展開後（配布物そのもの）
+Expand-Archive dist\vtotp-windows-x64.zip -DestinationPath "$env:RUNNER_TEMP\vtotp-zip"
+$zipExe = Join-Path "$env:RUNNER_TEMP\vtotp-zip" "vtotp.exe"
+$zipExe --version
+$zipExe --help
+$zipExe init --key "$env:RUNNER_TEMP\vtotp-zip.key"
+
+# Onefile EXE
 dist\vtotp.exe --version
 dist\vtotp.exe --help
-dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
+dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-onefile.key"
 ```
+
+各対象について、`init`後に32バイト鍵、`config.json`、暗号化ストレージが生成され、
+出力に鍵バイト列・TOTPシークレット・トレースバック・未処理エラーが含まれないことも
+検証する。ZIP展開後のテストは、圧縮前のStandaloneディレクトリだけでなく、実際に
+配布するZIPが欠損なく実行可能であることを保証する。
 
 `init` の検証では、次の条件を追加で確認する。
 
@@ -1071,19 +1112,23 @@ dist\vtotp.exe init --key "$env:RUNNER_TEMP\vtotp-smoke-test.key"
 - Python トレースバックや未処理の例外が出力されない
 ```
 
-CI の一時ディレクトリを使い、開発者のホームディレクトリやリポジトリへ秘密情報を
-生成しない。Windows では PowerShell の `$LASTEXITCODE` または Actions のコマンド終了
-コードで判定し、`dist/vtotp.exe` を直接起動することで Python 実行時ではなく Nuitka
-生成物を検証する。
+CIの一時ディレクトリを使い、開発者のホームディレクトリやリポジトリへ秘密情報を
+生成しない。WindowsではPowerShellの`$LASTEXITCODE`またはActionsのコマンド終了
+コードで判定し、Python実行時ではなく各Nuitka生成物を直接起動して検証する。
 
 ### 18.6 設計上の完了条件
 
 ```text
 - PyInstallerの実行、依存、CIステップがリポジトリから除去されている
-- Windows成果物がdist/vtotp.exeとして生成される
-- Nuitkaのstandalone/onefileビルドが毎回再現可能である
-- cryptographyを含む暗号処理がバイナリ単体で動作する
-- --version、--help、initのスモークテストがCIで成功する
+- Windowsのハイブリッド成果物（`vtotp-windows-x64.zip`、`vtotp.exe`）と、
+    それぞれのSHA-256 sidecarが生成・検証・公開される
+- Standalone/OnefileのNuitkaビルドが毎回再現可能である
+- 両形態およびZIP展開後の実行ファイルで、cryptographyを含む暗号処理が動作する
+- Standalone本体、ZIP展開後、Onefileそれぞれの`--version`、`--help`、`init`がCIで成功する
+- Windows PEの会社名、製品名、説明、著作権が設定され、バージョンが数値4要素で
+    末尾`.0`固定（`X.Y.Z.0`）としてタグ由来値と一致する
+- 初期リリースが常にPre-releaseで公開され、検証・誤検知除外後に再ビルドなしで
+    Latestへ手動プロモートできる
 - バイナリ実行時もZero Leakage Ruleと終了コード体系が維持される
 ```
 
@@ -1225,7 +1270,7 @@ raise KeyNotFoundError(context={"path": display_path})
 ### 22.1 NuitkaのWindows仕様
 
 `.github/workflows/release.yml` のWindowsビルドは、タグ名から正規化したアプリケーション
-バージョンを取得し、次のメタデータをNuitkaコマンドへ明示する。
+バージョンを取得し、StandaloneとOnefileの両Nuitkaコマンドへ次のメタデータを明示する。
 
 ```text
 --company-name="vtotp Project"
@@ -1241,28 +1286,38 @@ raise KeyNotFoundError(context={"path": display_path})
 補助情報であり、コード署名や暗号化の代替ではない。正式リリースでは署名導入を別途
 検討する。
 
+Standalone版は`--standalone`で生成した実行ファイルと依存ファイル一式を
+`vtotp-windows-x64.zip`へ格納する。Onefile版は`--standalone --onefile`で生成し、
+`dist/vtotp.exe`として公開する。タグにプレリリース識別子が含まれる場合も、PEには
+安定版部分だけを使用し、`X.Y.Z.0`の4要素数値形式へ正規化する。
+
 ### 22.2 チェックサムと成果物
 
-各プラットフォームの実行可能ファイルをビルド・スモークテストした後、同じ `dist/`
-内で次を実行する。
+Windowsの両成果物をビルド・スモークテストした後、同じ`dist/`内で各ファイルに対して
+SHA-256 sidecarを生成する。
 
 ```powershell
-Get-FileHash dist\vtotp.exe -Algorithm SHA256 |
-    ForEach-Object { "$($_.Hash.ToLowerInvariant())  vtotp.exe" } |
-    Set-Content -NoNewline dist\vtotp.exe.sha256
+foreach ($file in @("dist\vtotp.exe", "dist\vtotp-windows-x64.zip")) {
+    $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    $name = Split-Path $file -Leaf
+    "$hash  $name" | Set-Content -NoNewline "$file.sha256"
+}
 ```
 
-Linux/macOSも同じ形式（64桁の小文字SHA-256、二つの空白、ファイル名）で生成する。
-バイナリと `.sha256` の両方をGitHub ReleaseおよびActions artifactへ添付し、CIで
-ファイルの存在とハッシュ再計算結果を検証する。アップロード対象が不足した場合は
-`if-no-files-found: error` で失敗させる。
+各sidecarは64桁の小文字SHA-256、二つの空白、対象ファイル名の形式とする。EXE、ZIP、
+各`.sha256`をGitHub ReleaseおよびActions artifactへ添付し、CIでファイルの存在と
+ハッシュ再計算結果を検証する。アップロード対象が不足した場合は
+`if-no-files-found: error`で失敗させる。
 
 ### 22.3 リリース順序
 
 ```text
-checkout -> setup-python -> pip install -e ".[build]" -> Nuitka build
--> --version/--help/init smoke test -> SHA-256生成・検証
--> binary + checksum artifact upload -> GitHub Release upload
+checkout -> setup-python -> pip install -e ".[build]"
+-> standalone build -> standalone smoke test -> ZIP化 -> ZIP展開後 smoke test
+-> onefile build -> onefile smoke test -> PE metadata verification
+-> 2成果物 + 2 sidecarのSHA-256生成・検証
+-> artifact download後の再検証 -> GitHub ReleaseへPre-release公開
+-> AV/実機検証 -> 再ビルドなしで手動Latestプロモート
 ```
 
 スモークテストは一時ホームディレクトリで実行し、stdoutにTOTP以外の秘密情報、stderrに

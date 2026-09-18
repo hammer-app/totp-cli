@@ -122,34 +122,46 @@
 * **カバレッジ:** 単体テストおよび統合テストにより、100% のテストカバレッジを維持する。
 * **静的解析:** `flake8`、`mypy --strict`、`black --check` に適合し、警告ゼロを維持する。
 
-### 4.4 パッケージング・バイナリ保護要件 (Binary Protection & Packaging)
+### 4.4 パッケージング・配布形態・バイナリ保護要件 (Binary Protection & Distribution)
 
 1. **バイナリ難読化・C言語コンパイル（Nuitka 採用）**:
    * 従来の PyInstaller（Python バイトコード同梱方式）を完全に廃止すること。
    * Python ソースコードを C 言語へトランスパイルし、C コンパイラによりネイティブ機械語バイナリへコンパイルする **Nuitka** を採用すること。
    * 一般的な Python デコンパイラ（`uncompyle6`, `pycdc` 等）によるソースコード復元を防止し、リバースエンジニアリング耐性を担保すること。
 
-2. **スタンドアロン・単一バイナリ生成**:
-   * Python ランタイムが未導入の環境でも単体で実行できるよう、スタンドアロン・単一実行ファイル（Standalone / Onefile 形式）を出力できること。
-   * 出力ファイル名:
-     * Windows: `vtotp.exe`
-     * Linux / macOS: `vtotp`
+2. **配布形態のハイブリッド提供（案3: Standalone ZIP / Onefile EXE / ソースコード版）**:
+   * 利用者の環境（特に SEP/Defender 等のセキュリティ監視強度やディスク I/O 性能）やユースケース（日常的な高速呼び出し vs. 単一ファイル持ち運び）に応じた最適な選択肢を提供するため、以下の 3 形態をサポート・明記すること。
+     1. **Standalone 版（ZIP アーカイブ配布）: 【高速・日常利用推奨】**
+        * Nuitka の `--standalone` モードでコンパイルされたフォルダ一式（`vtotp.exe`、依存 DLL、Python ランタイム）を ZIP 圧縮した成果物（`vtotp-windows-x64.zip`）。
+        * **特徴・起動速度:** 実行時の一時解凍オーバーヘッドが完全にゼロであり、**瞬時（約 0.05〜0.1 秒）に起動**する。
+        * **セキュリティ特性:** 一時フォルダ（`%TEMP%`）への動的ファイル展開（ドロッパー的挙動）を行わないため、アンチウイルス（SEP 等）による誤検知リスクが最も低く安全。
+        * **推奨対象:** ターミナルから頻繁に呼び出し、PATH を通して快適・爆速で TOTP コードを取得したい常用ユーザー。
+     2. **Onefile 版（単一実行ファイル配布）: 【ポータブル・単体ファイル版】**
+        * Nuitka の `--standalone --onefile` モードでコンパイルされた単一バイナリ（`vtotp.exe`）。
+        * **特徴・起動速度:** 初回起動時やセキュリティソフト（SEP/Defender）のスキャン割り込みにより **約 1〜3 秒の自己展開・スキャン待機時間** が発生する。2回目以降の展開オーバーヘッドを緩和するため、Nuitka の一時展開キャッシュ固定化（`--onefile-tempdir-spec`）や非圧縮化（`--onefile-no-compression`）等の最適化を施すこと。
+        * **セキュリティ特性:** 実行時に一時フォルダへ DLL 群を展開するため、環境や AV 定義によって検知・スキャンの影響を受けやすい。
+        * **推奨対象:** PATH 設定やフォルダ展開を行わず、USB メモリや特定フォルダに単一の `.exe` のみを手軽に配置・持ち運びたいユーザー。
+     3. **ソースコード版（Python パッケージ）: 【開発者・マルチプラットフォーム向け】**
+        * `pip install -e .` または `pip install .` によりローカルの Python 環境へ直接導入して利用する形態。
+        * **特徴・起動速度:** Python インタプリタの通常起動速度（約 0.1〜0.2 秒）で動作。OS やアーキテクチャに依存せず、最新の Python 3.11+ 環境があればどこでも動作する。
+        * **推奨対象:** Linux/macOS 環境のユーザー、コードを直接確認・改変したい開発者。
 
 3. **ビルド環境・依存関係**:
    * ビルド環境には適切な C/C++ コンパイラ（Windows: MSVC または MinGW64、Linux: GCC/Clang、macOS: Clang）が整備されていること。
    * `pyproject.toml` のビルド依存関係から `pyinstaller` を削除し、`nuitka`（および必要に応じて `zstandard` 等）へ刷新すること。
-   * CI/CD（GitHub Actions `release.yml`）上で自動ビルドおよびバイナリアーティファクトの生成・リリースが行えること。
+   * CI/CD（GitHub Actions `release.yml`）上で自動ビルドおよび両バイナリアーティファクト（Standalone ZIP 版および Onefile EXE 版）の生成・リリースが行えること。
 
 4. **機能等価性と完全性検証（スモークテスト）**:
-   * Nuitka によりコンパイルされたバイナリは、Python 実行時と完全に等価な動作（Zero Leakage、暗号化処理、Windows パス正規化、決定的な終了コード体系）を維持すること。
+   * Nuitka によりコンパイルされたバイナリ（Standalone 版および Onefile 版）は、Python 実行時と完全に等価な動作（Zero Leakage、暗号化処理、Windows パス正規化、決定的な終了コード体系）を維持すること。
    * CI/CD パイプライン内で、生成されたバイナリに対するスモークテスト（`--version`、`--help`、`init` 等）を実施し、バイナリの健全性を保証すること。
 
 5. **PE ヘッダーメタデータの明記**:
    * 未署名バイナリにおける不審度（SEP等のレピュテーション判定）を緩和するため、Nuitka ビルド時に Windows PE メタデータ（会社名、製品名、バージョン、ファイル説明文、著作権表示等）をバイナリヘッダーへ明記すること。
+   * バージョン情報は数値 4 区切り（`X.Y.Z.W`、例: `0.2.0.0`）に正規化すること。
 
 6. **プレリリース（Pre-release）運用と除外申請ライフサイクル（プロモーション方式）**:
-   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、新規バージョンタグ（例: `v0.2.0`）発行時、GitHub Actions によるリリース成果物は自動的に「Pre-release」として公開すること。
-   * Nuitka により生成された `vtotp.exe` の SHA-256 チェックサムを Release ノートおよびサイドカーファイル（`vtotp.exe.sha256`）として添付し、その検証済みバイナリを用いてベンダーへの誤検知除外申請（False Positive Submission）および実機検証を実施すること。
+   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、新規バージョンタグ（例: `v0.2.0`）発行時、GitHub Actions によるリリース成果物（Standalone ZIP 版、Onefile EXE 版）は自動的に「Pre-release」として公開すること。
+   * 各成果物の SHA-256 チェックサムを Release ノートおよびサイドカーファイル（`vtotp.exe.sha256`, `vtotp-windows-x64.zip.sha256`）として添付し、その検証済みバイナリを用いてベンダーへの誤検知除外申請（False Positive Submission）および実機検証を実施すること。
    * SEP で検知解除を確認できた後、バイナリの再コンパイルを行わずに当該リリースを「Latest（正式リリース）」へ昇格（プロモート）させること（`gh release edit <tag> --latest --prerelease=false` または GitHub Web UI）。これにより、再ビルドによるバイナリハッシュ変化とそれに伴う SEP 再検知リスクを完全に排除する。
 
 ### 4.5 多言語化設計要件 (Internationalization Architecture)
@@ -176,6 +188,8 @@
    * `README.md` および `README.en.md` の冒頭に、互いの言語版への切り替えリンクを設置すること。
      * `README.md`: `[English](README.en.md) | 日本語`
      * `README.en.md`: `English | [日本語](README.md)`
+3. **配布形態・実行パフォーマンス特性の明記**:
+   * `README.md` および `README.en.md` において、Standalone ZIP 版、Onefile EXE 版、ソースコード版の 3 つの利用形態の特徴（起動速度、SEP/Defender による影響、ポータブル性、推奨ユースケース）を対比表および解説として明記し、ユーザーが環境や用途に合わせて適切な形態を選択できるようにすること。
 
 ---
 

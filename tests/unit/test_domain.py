@@ -20,6 +20,7 @@ from vtotp.domain import (
     StorageCorruptedError,
     TotpCliError,
 )
+from vtotp.i18n.catalog import MsgKey
 
 
 class TestExceptionHierarchy:
@@ -50,16 +51,26 @@ class TestExceptionHierarchy:
         """基底例外の既定終了コードが一般エラー(1)であることを確認する。"""
         assert TotpCliError.exit_code == 1
 
-    def test_exception_message_is_preserved_and_is_exception_subclass(self) -> None:
-        """例外メッセージが保持され、標準のExceptionを継承していることを確認する。"""
-        error = KeyNotFoundError("key file was not found")
+    def test_message_key_and_context_are_preserved(self) -> None:
+        """message_keyとcontextがそのまま保持され、標準のExceptionを継承していることを確認する。"""
+        error = KeyNotFoundError(
+            MsgKey.KEY_NOT_FOUND, context={"path": "C:/keys/master.key"}
+        )
         assert isinstance(error, Exception)
-        assert str(error) == "key file was not found"
+        assert error.message_key is MsgKey.KEY_NOT_FOUND
+        assert error.context == {"path": "C:/keys/master.key"}
 
-    def test_exception_message_does_not_require_secret_content(self) -> None:
-        """例外メッセージに秘密情報を含めなくても構築できることを確認する（Zero Leakage Rule）。"""
-        error = InvalidSecretError("secret format is invalid")
-        assert "JBSWY" not in str(error)
+    def test_context_defaults_to_empty_mapping_when_omitted(self) -> None:
+        """contextを省略した場合、空のマッピングになることを確認する。"""
+        error = InvalidSecretError(MsgKey.SECRET_EMPTY)
+        assert error.context == {}
+
+    def test_str_representation_is_the_message_key_value_only(self) -> None:
+        """例外の既定のstr表現が、表示文ではなくmessage_keyの値のみであることを確認する
+        （例外は表示文を保持しない。ローカライズはformatter側の責務）。
+        """
+        error = InvalidSecretError(MsgKey.SECRET_INVALID_FORMAT)
+        assert str(error) == MsgKey.SECRET_INVALID_FORMAT.value
 
 
 #: Zero Leakage Rule の徹底確認対象となる、全ての専用例外クラス。
@@ -78,48 +89,51 @@ ALL_TOTP_CLI_EXCEPTION_TYPES: list[type[TotpCliError]] = [
 class TestZeroLeakageRuleAcrossExceptions:
     """全例外クラス共通のZero Leakage Rule（秘密情報の非漏洩）を確認するテスト。
 
-    StorageCorruptedError等の例外は、暗号化データの破損や復号失敗など
-    ファイルパスやシークレットに触れやすい文脈で送出されるため、例外
-    オブジェクト自身が渡されたメッセージ以外の情報を一切保持しないこと
-    （＝呼び出し元が安全なメッセージを渡す限り漏洩し得ないこと）を保証する。
+    例外オブジェクトはmessage_keyと、呼び出し元が渡した安全なcontextの値
+    しか保持しないため、呼び出し元が秘密情報をcontextへ含めない限り漏洩し
+    得ないことを保証する。
     """
 
     @pytest.mark.parametrize("exception_type", ALL_TOTP_CLI_EXCEPTION_TYPES)
-    def test_instance_holds_no_hidden_state_beyond_the_message(
+    def test_instance_holds_only_message_key_and_context(
         self, exception_type: type[TotpCliError]
     ) -> None:
-        """例外インスタンスの__dict__が空であり、メッセージ以外の隠れた属性を保持しないことを確認する。"""
-        error = exception_type("safe generic message")
-        assert vars(error) == {}
-        assert error.args == ("safe generic message",)
+        """例外インスタンスがmessage_key/context以外の隠れた属性を保持しないことを確認する。"""
+        error = exception_type(MsgKey.CANCELLED, context={"path": "safe/path"})
+        assert vars(error) == {
+            "message_key": MsgKey.CANCELLED,
+            "context": {"path": "safe/path"},
+        }
 
     @pytest.mark.parametrize("exception_type", ALL_TOTP_CLI_EXCEPTION_TYPES)
-    def test_str_and_repr_contain_nothing_beyond_the_given_safe_message(
+    def test_str_and_repr_never_contain_context_secret_markers(
         self, exception_type: type[TotpCliError]
     ) -> None:
-        """安全なメッセージのみを渡した場合、strとreprに余分な情報が付加されないことを確認する。"""
-        safe_message = "storage data could not be processed"
-        error = exception_type(safe_message)
-        assert str(error) == safe_message
-        assert safe_message in repr(error)
+        """strとreprの既定表現に、渡したcontextの値自体は含まれない（message_keyのみ）ことを確認する。"""
+        error = exception_type(
+            MsgKey.STORAGE_DECRYPTION_FAILED,
+            context={"secret_marker": "JBSWY3DPEHPK3PXP"},
+        )
+        assert "JBSWY3DPEHPK3PXP" not in str(error)
+        assert "JBSWY3DPEHPK3PXP" not in repr(error)
 
-    def test_storage_corrupted_error_message_omits_path_and_secret_markers(
+    def test_storage_corrupted_error_context_holds_only_safe_values(
         self,
     ) -> None:
-        """StorageCorruptedErrorに、鍵やシークレットを含まない安全なメッセージのみを渡した場合の
-        strとreprが、ファイルパス区切りやシークレットらしき文字列を含まないことを確認する。
+        """StorageCorruptedErrorのcontextに、呼び出し元が渡した安全な値（パス等）のみが
+        保持されることを確認する。
         """
-        error = StorageCorruptedError("暗号化データの認証タグ検証に失敗しました")
+        error = StorageCorruptedError(
+            MsgKey.STORAGE_FILE_NOT_FOUND, context={"path": "C:/data/vtotp-secrets.enc"}
+        )
+        assert error.context == {"path": "C:/data/vtotp-secrets.enc"}
         assert "JBSWY" not in str(error)
-        assert "JBSWY" not in repr(error)
-        assert "\\" not in str(error)
-        assert "/" not in str(error)
 
     def test_storage_corrupted_error_does_not_expose_underlying_cause_secrets(
         self,
     ) -> None:
         """__cause__経由で連鎖された下位例外の内容が、StorageCorruptedError自体の
-        strには現れない（呼び出し元が安全なメッセージへ変換する責務を持つ）ことを確認する。
+        strには現れない（呼び出し元が安全なコンテキストへ変換する責務を持つ）ことを確認する。
         """
         underlying_secret_leak = ValueError(
             "raw-master-key-bytes-should-not-appear-here"
@@ -128,9 +142,7 @@ class TestZeroLeakageRuleAcrossExceptions:
             try:
                 raise underlying_secret_leak
             except ValueError as exc:
-                raise StorageCorruptedError(
-                    "暗号化データを復号できませんでした"
-                ) from exc
+                raise StorageCorruptedError(MsgKey.STORAGE_DECRYPTION_FAILED) from exc
         except StorageCorruptedError as error:
             assert "raw-master-key-bytes-should-not-appear-here" not in str(error)
             assert error.__cause__ is underlying_secret_leak

@@ -1,9 +1,10 @@
 """CLI全体のエントリーポイントである CliHandler を定義するモジュール。
 
-DESIGN.md 11〜14章に基づき、CLI引数の前処理（省略形フォールバック）、
-argparseによるサブコマンド解析、各サブコマンドのユースケース実行、
-および例外の終了コードへの変換を担う。TOTPシークレットや鍵の内容は
-いかなる場合もstdout/stderrへ出力しない（Zero Leakage Rule）。
+DESIGN.md 11〜14章・20〜21章に基づき、CLI引数の前処理（省略形フォールバック・
+第一引数固定・後置オプション規則）、argparseによるサブコマンド解析、表示言語の
+解決、各サブコマンドのユースケース実行、および例外の終了コードへの変換を担う。
+TOTPシークレットや鍵の内容はいかなる場合もstdout/stderrへ出力しない
+（Zero Leakage Rule）。
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from vtotp.domain.exceptions import (
     TotpCliError,
 )
 from vtotp.domain.models import SecretRecord
+from vtotp.i18n.catalog import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, MsgKey
+from vtotp.i18n.resolver import ENV_LANG_VARIABLE, LanguageResolver, detect_os_locale
 
 #: config.json / 暗号化データファイルの既定の配置ディレクトリ。
 DEFAULT_CONFIG_DIR: Path = Path.home() / ".vtotp"
@@ -42,12 +45,14 @@ DEFAULT_STORAGE_FILENAME: str = "vtotp-secrets.enc"
 #: 鍵ファイルパスを指定する環境変数名。
 ENV_KEY_PATH_VARIABLE: str = "VTOTP_KEY_PATH"
 
+#: `-l`/`--lang` の選択肢（argparseの`choices`用）。
+_LANG_CHOICES: list[str] = list(SUPPORTED_LANGUAGES)
 
 #: パスの前後引用符として認識する文字。
 _QUOTE_CHARS = "\"'"
 
 
-def _strip_quotes(value: str) -> str:
+def _strip_quotes(value: str, language: str) -> str:
     """前後の空白、および前後を囲む一致した引用符（`"` または `'`）を除去する。
 
     Windowsのエクスプローラーの「パスのコピー」やシェルの挙動によって、
@@ -59,6 +64,8 @@ def _strip_quotes(value: str) -> str:
     - 引用符が片側にしか無い、または開始・終了の引用符の種類が一致しない
       （閉じられていない引用符）場合
     - 引用符・前後の空白を除去した結果が空文字列になる場合
+
+    エラーメッセージは`language`でローカライズされる。
     """
     stripped = value.strip()
     starts_with_quote = bool(stripped) and stripped[0] in _QUOTE_CHARS
@@ -73,22 +80,18 @@ def _strip_quotes(value: str) -> str:
         )
         if not is_matched_pair:
             raise argparse.ArgumentTypeError(
-                f"引用符が正しく閉じられていません: {value!r}"
+                formatter.format_message(
+                    MsgKey.PATH_UNCLOSED_QUOTE, language, value=repr(value)
+                )
             )
         stripped = stripped[1:-1].strip()
 
     if not stripped:
-        raise argparse.ArgumentTypeError("パスを空にすることはできません")
+        raise argparse.ArgumentTypeError(
+            formatter.format_message(MsgKey.PATH_EMPTY, language)
+        )
 
     return stripped
-
-
-def _parse_path_argument(value: str) -> Path:
-    """CLI引数の文字列から引用符・前後の空白を除去したうえで `Path` へ変換する。
-
-    `argparse` の `--key`/`--storage` オプションの `type` として使用する。
-    """
-    return Path(_strip_quotes(value))
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -105,18 +108,21 @@ class _ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         """使用方法を表示したうえで、CommandParseErrorを送出する。"""
         self.print_usage(self.error_stream)
-        raise CommandParseError(message)
+        raise CommandParseError(MsgKey.COMMAND_PARSE_ERROR, context={"detail": message})
 
 
 class CliHandler:
     """CLI全体のエントリーポイントを提供するクラス。
 
     CLI引数の初期取得・省略形コマンドの判定・argparseによる正式な引数
-    解析・コマンドディスパッチ・例外のユーザー向けメッセージへの変換を
-    行う。
+    解析・表示言語の解決・コマンドディスパッチ・例外のユーザー向け
+    メッセージへの変換を行う。
     """
 
     #: 省略形フォールバックの対象外とする予約済みトークン（サブコマンド名・エイリアス・グローバルオプション）。
+    #: `-l`/`--lang`はここに含めない。第一引数として値付きオプションが前置された
+    #: 場合、トップレベルパーサーが未知の引数として拒否し終了コード2になる
+    #: （DESIGN.md 20.1「第一引数固定と後置オプション」）。
     RESERVED_COMMANDS: frozenset[str] = frozenset(
         {
             "init",
@@ -134,6 +140,12 @@ class CliHandler:
             "--help",
             "--version",
         }
+    )
+
+    #: `SERVICE` を必須位置引数とするサブコマンド（正規化後のトークン）。
+    #: `-g`は`normalize_argv`で`generate`へ変換済みのため、ここには含めない。
+    _SERVICE_REQUIRED_COMMANDS: frozenset[str] = frozenset(
+        {"generate", "get", "add", "remove", "rm"}
     )
 
     def __init__(
@@ -171,6 +183,12 @@ class CliHandler:
             config_path if config_path is not None else DEFAULT_CONFIG_PATH
         )
 
+        #: 直近のrun()呼び出しで解決された表示言語。parse_args()内のtype変換
+        #: コールバック（`_type_path`）から動的に参照されるため、パーサー構築
+        #: より前に初期化する。
+        self._current_language: str = DEFAULT_LANGUAGE
+        self._language_resolver = LanguageResolver()
+
         self._parser = self._build_parser()
         self._command_handlers: dict[str, Callable[[argparse.Namespace], int]] = {
             "init": self._cmd_init,
@@ -190,31 +208,44 @@ class CliHandler:
     def run(self, argv: Sequence[str]) -> int:
         """CLI全体のエントリーポイント。
 
-        引数の正規化・解析・ディスパッチ・エラー処理を行い、終了コード
-        を返す。``-h``/``--help``/``--version`` はargparseの標準的な挙動
-        に従い、実際の標準出力・標準エラー出力（``sys.stdout``/
-        ``sys.stderr``）へ直接書き込む。それ以外のコマンド結果・エラー
-        メッセージは、コンストラクタで注入されたストリームへ書き込む。
+        引数の正規化・表示言語の解決・解析・ディスパッチ・エラー処理を
+        行い、終了コードを返す。``-h``/``--help``/``--version`` はargparseの
+        標準的な挙動に従い、実際の標準出力・標準エラー出力
+        （``sys.stdout``/``sys.stderr``）へ直接書き込む。それ以外のコマンド
+        結果・エラーメッセージは、コンストラクタで注入されたストリームへ
+        書き込む。
         """
         normalized_argv = self.normalize_argv(list(argv))
+        self._current_language = self._resolve_language(
+            self._prescan_lang(normalized_argv)
+        )
+        self._parser.description = formatter.format_message(
+            MsgKey.APP_DESCRIPTION, self._current_language
+        )
+
         try:
+            self._validate_service_position(normalized_argv)
             parsed_args = self._parser.parse_args(normalized_argv)
         except SystemExit as exc:
             return self._exit_code_from_system_exit(exc)
         except CommandParseError as error:
-            formatter.write_error(str(error), self._stderr)
+            formatter.write_error(error, self._current_language, stream=self._stderr)
             return error.exit_code
+
+        # 実際に解析済みの`--lang`（argparseの`choices`検証を通過した値）を
+        # 優先順位解決へ再度通し、事前走査（prescan）との差異を正規化する。
+        self._current_language = self._resolve_language(
+            getattr(parsed_args, "lang", None)
+        )
 
         try:
             return self._command_handlers[parsed_args.command](parsed_args)
         except TotpCliError as error:
-            formatter.write_error(str(error), self._stderr)
+            formatter.write_error(error, self._current_language, stream=self._stderr)
             return error.exit_code
-        except ValueError as error:
-            formatter.write_error(str(error), self._stderr)
-            return 1
-        except OSError as error:
-            formatter.write_error(f"ファイル操作に失敗しました: {error}", self._stderr)
+        except OSError:
+            fallback = TotpCliError(MsgKey.FILE_OPERATION_FAILED)
+            formatter.write_error(fallback, self._current_language, stream=self._stderr)
             return 1
 
     @staticmethod
@@ -231,7 +262,10 @@ class CliHandler:
 
         第一引数が予約済みトークン（サブコマンド名・エイリアス・
         `-h`/`--help`/`--version` 等のオプション）でない場合、サービス名
-        と判定し `generate <service>` へ読み替える。
+        と判定し `generate <service>` へ読み替える。第一引数が`-l`/`-k`等の
+        値付きオプションである場合はサービス名へのフォールバックを行わず
+        argvをそのまま返し、後続のargparse解析で未知の引数として拒否させる
+        （終了コード2、DESIGN.md 20.1）。
         """
         if not argv:
             return ["--help"]
@@ -243,67 +277,122 @@ class CliHandler:
             return list(argv)
         return ["generate", first, *argv[1:]]
 
+    def _validate_service_position(self, argv: Sequence[str]) -> None:
+        """`SERVICE` を必須とするコマンドで、サブコマンド直後に `SERVICE` が
+        指定されていること（オプションが前置されていないこと）を検証する。
+
+        `vtotp get --key PATH github` や `vtotp generate -l ja github` の
+        ように、`SERVICE` より前にオプションが置かれた場合は、argparseが
+        たまたま解決してしまう前に `CommandParseError`（終了コード2）を
+        送出して拒否する（DESIGN.md 20.1「第一引数固定と後置オプション」）。
+        `SERVICE` 自体が省略された場合（`vtotp generate` 等）は、この検証を
+        素通りさせ、argparseの必須位置引数エラーに処理を委ねる。
+        """
+        if not argv or argv[0] not in self._SERVICE_REQUIRED_COMMANDS:
+            return
+        if len(argv) >= 2 and argv[1].startswith("-"):
+            raise CommandParseError(MsgKey.SERVICE_MUST_PRECEDE_OPTIONS)
+
+    # --- 表示言語の解決 ---
+
+    def _prescan_lang(self, argv: Sequence[str]) -> str | None:
+        """argparseによる本解析より前に、argvから`-l`/`--lang`の値を事前走査する。
+
+        パス引数の`type`変換（`_strip_quotes`）やargparse自体の解析エラーを
+        ローカライズするため、正式な解析が完了する前に表示言語の推定値が
+        必要となる。本走査はあくまで簡易な推定であり、実際に採用される
+        言語は`parse_args()`成功後に`args.lang`で再解決される。
+        """
+        for index, token in enumerate(argv):
+            if token in ("-l", "--lang") and index + 1 < len(argv):
+                return argv[index + 1]
+            if token.startswith("--lang="):
+                return token.split("=", 1)[1]
+        return None
+
+    def _resolve_language(self, cli_lang: str | None) -> str:
+        """CLI引数・環境変数・config.json・OSロケール・既定値の優先順位で表示言語を解決する。"""
+        config = self._load_config()
+        return self._language_resolver.resolve(
+            cli_lang=cli_lang,
+            env_lang=os.environ.get(ENV_LANG_VARIABLE),
+            config_lang=config.get("language"),
+            locale_lang=detect_os_locale(),
+        )
+
     # --- argparseパーサー構築 ---
 
     def _build_parser(self) -> _ArgumentParser:
         """サブコマンド一式を備えたargparseパーサーを構築する。"""
-        parser = _ArgumentParser(
-            prog="vtotp",
-            description="Custom CLI TOTP Authenticator",
-        )
+        parser = _ArgumentParser(prog="vtotp")
         parser.add_argument(
             "--version", action="version", version=f"%(prog)s {__version__}"
         )
 
         subparsers = parser.add_subparsers(dest="command")
 
-        init_parser = subparsers.add_parser("init", help="新しい鍵ファイルを作成する")
-        init_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
+        def _type_path(value: str) -> Path:
+            """`self._current_language`を動的に参照するパス引数の`type`コールバック。"""
+            return Path(_strip_quotes(value, self._current_language))
+
+        init_parser = subparsers.add_parser("init", help="Create a new key file")
+        init_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        init_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
 
         generate_parser = subparsers.add_parser(
-            "generate", aliases=["get"], help="TOTPコードを生成して表示する"
+            "generate", aliases=["get"], help="Generate and display a TOTP code"
         )
         generate_parser.add_argument("service")
+        generate_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        generate_parser.add_argument("--storage", type=_type_path, default=None)
         generate_parser.add_argument(
-            "-k", "--key", type=_parse_path_argument, default=None
-        )
-        generate_parser.add_argument(
-            "--storage", type=_parse_path_argument, default=None
+            "-l", "--lang", choices=_LANG_CHOICES, default=None
         )
 
-        add_parser = subparsers.add_parser("add", help="新しいサービスを登録する")
+        add_parser = subparsers.add_parser("add", help="Register a new service")
         add_parser.add_argument("service")
         add_parser.add_argument("--secret", "-s", default=None)
         add_parser.add_argument("--issuer", default=None)
-        add_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
-        add_parser.add_argument("--storage", type=_parse_path_argument, default=None)
+        add_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        add_parser.add_argument("--storage", type=_type_path, default=None)
+        add_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
 
         list_parser = subparsers.add_parser(
-            "list", aliases=["ls"], help="登録済みサービスの一覧を表示する"
+            "list", aliases=["ls"], help="List registered services"
         )
-        list_parser.add_argument("-k", "--key", type=_parse_path_argument, default=None)
-        list_parser.add_argument("--storage", type=_parse_path_argument, default=None)
+        list_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        list_parser.add_argument("--storage", type=_type_path, default=None)
+        list_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
 
         remove_parser = subparsers.add_parser(
-            "remove", aliases=["rm"], help="登録済みサービスを削除する"
+            "remove", aliases=["rm"], help="Remove a registered service"
         )
         remove_parser.add_argument("service")
         remove_parser.add_argument("--force", "-f", action="store_true")
-        remove_parser.add_argument(
-            "-k", "--key", type=_parse_path_argument, default=None
-        )
-        remove_parser.add_argument("--storage", type=_parse_path_argument, default=None)
+        remove_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        remove_parser.add_argument("--storage", type=_type_path, default=None)
+        remove_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
 
         rekey_parser = subparsers.add_parser(
-            "rekey", help="鍵を更新し、データを再暗号化する"
+            "rekey", help="Rotate the key and re-encrypt the data"
         )
-        rekey_parser.add_argument(
-            "-k", "--key", type=_parse_path_argument, default=None
-        )
-        rekey_parser.add_argument("--storage", type=_parse_path_argument, default=None)
+        rekey_parser.add_argument("-k", "--key", type=_type_path, default=None)
+        rekey_parser.add_argument("--storage", type=_type_path, default=None)
+        rekey_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
 
         config_parser = subparsers.add_parser(
-            "config", help="現在解決される設定内容を表示する"
+            "config", help="Show or update the resolved configuration"
+        )
+        # `-l`/`--lang`はconfigに限り、他コマンドの「表示言語の一時指定」ではなく
+        # 「保存する言語設定の値」を兼ねるショートカットとして機能する
+        # （REQUIREMENTS.md 3.2.6 / DESIGN.md 19.2）。
+        config_parser.add_argument("-l", "--lang", choices=_LANG_CHOICES, default=None)
+        config_subparsers = config_parser.add_subparsers(dest="config_action")
+        config_set_parser = config_subparsers.add_parser("set")
+        config_set_parser.add_argument("setting", choices=["language"])
+        config_set_parser.add_argument("value", choices=_LANG_CHOICES)
+        config_set_parser.add_argument(
+            "-l", "--lang", choices=_LANG_CHOICES, default=None
         )
 
         # サブパーサーも `_ArgumentParser` のインスタンスであり、それぞれが
@@ -318,6 +407,7 @@ class CliHandler:
             remove_parser,
             rekey_parser,
             config_parser,
+            config_set_parser,
         ):
             sub_parser.error_stream = self._stderr
 
@@ -337,11 +427,8 @@ class CliHandler:
             return {}
         return {key: value for key, value in data.items() if isinstance(value, str)}
 
-    def _save_key_path(self, key_path: Path) -> None:
-        """config.jsonの `key_path` のみをatomicに更新する（initでのみ呼び出す）。"""
-        config = self._load_config()
-        config["key_path"] = str(key_path)
-
+    def _write_config(self, config: dict[str, str]) -> None:
+        """`config`辞書全体をconfig.jsonへatomicに書き込む（内部ヘルパー）。"""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(
             dir=self._config_path.parent, prefix=".config.", suffix=".tmp"
@@ -354,6 +441,18 @@ class CliHandler:
         except BaseException:
             tmp_path.unlink(missing_ok=True)
             raise
+
+    def _save_key_path(self, key_path: Path) -> None:
+        """config.jsonの `key_path` のみをatomicに更新する（initでのみ呼び出す）。"""
+        config = self._load_config()
+        config["key_path"] = str(key_path)
+        self._write_config(config)
+
+    def _save_language(self, language: str) -> None:
+        """config.jsonの `language` のみをatomicに更新する（config set language等で呼び出す）。"""
+        config = self._load_config()
+        config["language"] = language
+        self._write_config(config)
 
     def _resolve_key_path(self, cli_key: Path | None) -> Path:
         """CLIオプション・環境変数・config.jsonの優先順位で鍵ファイルパスを解決する。"""
@@ -384,11 +483,14 @@ class CliHandler:
 
     def _cancel(self) -> NoReturn:
         """ユーザーによるキャンセルとして :class:`CancelledError` を送出する。"""
-        raise CancelledError("ユーザーによって操作がキャンセルされました")
+        raise CancelledError(MsgKey.CANCELLED)
 
-    def _confirm(self, message: str) -> bool:
-        """`message` を表示し、`y`/`yes`（大文字小文字を区別しない）の入力のみを承認として扱う。"""
-        formatter.write_info(f"{message} [y/N]: ", self._stderr)
+    def _confirm(self, key: MsgKey, **context: str) -> bool:
+        """`key`をローカライズして表示し、`y`/`yes`（大文字小文字を区別しない）の
+        入力のみを承認として扱う。
+        """
+        message = formatter.format_message(key, self._current_language, **context)
+        print(f"{message} [y/N]: ", file=self._stderr)
         try:
             response = self._input()
         except EOFError:
@@ -402,9 +504,11 @@ class CliHandler:
         引用符のみ・不一致な引用符など、明らかに不正な入力が行われた
         場合はエラーメッセージを表示したうえでキャンセル扱いとする。
         """
-        formatter.write_info(
-            "鍵ファイルの新規作成先パスを入力してください（空欄でキャンセル）:",
-            self._stderr,
+        print(
+            formatter.format_message(
+                MsgKey.INIT_PROMPT_KEY_PATH, self._current_language
+            ),
+            file=self._stderr,
         )
         try:
             response = self._input()
@@ -413,17 +517,44 @@ class CliHandler:
         if not response.strip():
             return None
         try:
-            normalized = _strip_quotes(response)
+            normalized = _strip_quotes(response, self._current_language)
         except argparse.ArgumentTypeError as error:
-            formatter.write_error(str(error), self._stderr)
+            label = formatter.format_message(MsgKey.LABEL_ERROR, self._current_language)
+            print(f"{label}: {error}", file=self._stderr)
             return None
         return Path(normalized)
 
+    def _prompt_for_language(self) -> str:
+        """`init` で `-l`/`--lang` 未指定時に、表示言語を対話入力で取得する。
+
+        既に解決済みの言語（`self._current_language`）をプロンプトの既定値
+        として提示する（DESIGN.md 19.2「init は解決済み言語を初期値として
+        提示し」）。空欄・EOF・`en`/`ja`のいずれにも正規化できない入力は、
+        いずれも黙ってその既定値を採用する（鍵パスの対話入力とは異なり、
+        言語選択には常に安全なフォールバック値が存在するため、キャンセル
+        は行わない）。
+        """
+        default_language = self._current_language
+        print(
+            formatter.format_message(
+                MsgKey.INIT_PROMPT_LANGUAGE,
+                self._current_language,
+                default=default_language,
+            ),
+            file=self._stderr,
+        )
+        try:
+            response = self._input()
+        except EOFError:
+            return default_language
+        normalized = self._language_resolver.normalize(response)
+        return normalized if normalized is not None else default_language
+
     def _prompt_for_secret(self) -> str | None:
         """`add` で `--secret` 未指定時に、TOTPシークレットを対話入力で取得する。"""
-        formatter.write_info(
-            "TOTPシークレット（Base32）を入力してください（空欄でキャンセル）:",
-            self._stderr,
+        print(
+            formatter.format_message(MsgKey.ADD_PROMPT_SECRET, self._current_language),
+            file=self._stderr,
         )
         try:
             response = self._input()
@@ -434,32 +565,28 @@ class CliHandler:
 
     def _confirm_existing_key_warning(self, path: Path) -> bool:
         """`init` の第1警告：既存鍵ファイルの上書き確認。"""
-        return self._confirm(
-            f"指定された場所には既に鍵ファイルが存在します: {path}\n新しい鍵で上書きしますか？"
-        )
+        return self._confirm(MsgKey.INIT_KEY_EXISTS_WARNING, path=str(path))
 
     def _confirm_decryption_loss_warning(self) -> bool:
         """`init` の第2警告：既存の暗号化データを復号できなくなる可能性の確認。"""
-        return self._confirm(
-            "上書きすると、既存の暗号化データを現在の鍵で復号できなくなる可能性があります。"
-            "続行しますか？"
-        )
+        return self._confirm(MsgKey.INIT_DECRYPTION_LOSS_WARNING)
 
     def _confirm_rotation_limit_warning(self, oldest_path: Path) -> bool:
         """`rekey` のローテーション上限警告：最古世代の鍵ファイル削除確認。"""
-        formatter.write_info(
-            f"ローテーション上限に達したため、最も古い鍵ファイル {oldest_path} を削除します。",
-            self._stderr,
+        print(
+            formatter.format_message(
+                MsgKey.REKEY_ROTATION_LIMIT_NOTICE,
+                self._current_language,
+                path=str(oldest_path),
+            ),
+            file=self._stderr,
         )
-        return self._confirm(
-            "この鍵を必要とするバックアップや過去の暗号化データは、"
-            "今後復号できなくなる可能性があります。続行しますか？"
-        )
+        return self._confirm(MsgKey.REKEY_ROTATION_LIMIT_CONFIRM)
 
     # --- サブコマンド実装 ---
 
     def _cmd_init(self, args: argparse.Namespace) -> int:
-        """新しい鍵ファイルと空の暗号化ストレージを作成し、config.jsonのkey_pathを更新する。"""
+        """新しい鍵ファイルと空の暗号化ストレージを作成し、config.jsonのkey_path/languageを更新する。"""
         key_output_path: Path | None = args.key
         if key_output_path is None:
             key_output_path = self._prompt_for_key_output_path()
@@ -478,13 +605,25 @@ class CliHandler:
         storage_path = self._resolve_storage_path(None)
         self._secure_storage.initialize(storage_path, new_key)
 
-        self._save_key_path(key_output_path)
+        if args.lang is None:
+            self._current_language = self._prompt_for_language()
+
+        config = self._load_config()
+        config["key_path"] = str(key_output_path)
+        config["language"] = self._current_language
+        self._write_config(config)
 
         formatter.write_info(
-            f"鍵ファイルを作成しました: {key_output_path}", self._stderr
+            MsgKey.INIT_KEY_CREATED,
+            self._current_language,
+            stream=self._stderr,
+            path=str(key_output_path),
         )
         formatter.write_info(
-            f"暗号化データファイルを初期化しました: {storage_path}", self._stderr
+            MsgKey.INIT_STORAGE_INITIALIZED,
+            self._current_language,
+            stream=self._stderr,
+            path=str(storage_path),
         )
         return 0
 
@@ -529,7 +668,12 @@ class CliHandler:
         updated_records = self._service_registry.add(records, record)
         self._secure_storage.save_secrets(storage_path, key, updated_records)
 
-        formatter.write_info(f"サービスを登録しました: {args.service}", self._stderr)
+        formatter.write_info(
+            MsgKey.ADD_SERVICE_REGISTERED,
+            self._current_language,
+            stream=self._stderr,
+            service=args.service,
+        )
         return 0
 
     def _cmd_list(self, args: argparse.Namespace) -> int:
@@ -541,7 +685,9 @@ class CliHandler:
         records = self._secure_storage.load_secrets(storage_path, key)
         names = self._service_registry.list_names(records)
         ordered_records = [records[name] for name in names]
-        formatter.write_service_table(ordered_records, self._stdout)
+        formatter.write_service_table(
+            ordered_records, self._current_language, self._stdout
+        )
         return 0
 
     def _cmd_remove(self, args: argparse.Namespace) -> int:
@@ -556,15 +702,18 @@ class CliHandler:
         self._service_registry.get(records, args.service)
 
         if not args.force:
-            if not self._confirm(
-                f"サービス '{args.service}' を削除します。よろしいですか？"
-            ):
+            if not self._confirm(MsgKey.REMOVE_CONFIRM, service=args.service):
                 self._cancel()
 
         updated_records = self._service_registry.remove(records, args.service)
         self._secure_storage.save_secrets(storage_path, key, updated_records)
 
-        formatter.write_info(f"サービスを削除しました: {args.service}", self._stderr)
+        formatter.write_info(
+            MsgKey.REMOVE_SERVICE_REMOVED,
+            self._current_language,
+            stream=self._stderr,
+            service=args.service,
+        )
         return 0
 
     def _cmd_rekey(self, args: argparse.Namespace) -> int:
@@ -586,22 +735,56 @@ class CliHandler:
         self._secure_storage.rekey(storage_path, old_key, new_key)
 
         formatter.write_info(
-            f"鍵を更新し、データを再暗号化しました: {key_path}", self._stderr
+            MsgKey.REKEY_DONE,
+            self._current_language,
+            stream=self._stderr,
+            path=str(key_path),
         )
         return 0
 
     def _cmd_config(self, args: argparse.Namespace) -> int:
-        """現在解決される設定内容（config.jsonのパス・鍵パス・データパス）を表示する。
+        """`config`：設定内容の表示、または言語設定の更新を行う。
 
-        鍵の内容やシークレットは一切表示しない（Zero Leakage Rule）。
+        引数無しの場合は現在解決される設定内容（config.jsonのパス・鍵パス・
+        データパス・表示言語）を表示する。鍵の内容やシークレットは一切
+        表示しない（Zero Leakage Rule）。`-l`/`--lang`（ショートカット）または
+        `set language <en|ja>`（標準構文）が指定された場合は、その言語を
+        config.jsonへ保存し、保存した言語で確認メッセージを表示する。
         """
+        if getattr(args, "config_action", None) == "set":
+            new_language = str(args.value)
+        elif args.lang is not None:
+            new_language = str(args.lang)
+        else:
+            return self._show_config()
+
+        self._save_language(new_language)
+        self._current_language = new_language
+        formatter.write_info(
+            MsgKey.CONFIG_LANGUAGE_UPDATED,
+            self._current_language,
+            stream=self._stdout,
+            lang=new_language,
+        )
+        return 0
+
+    def _show_config(self) -> int:
+        """現在解決される設定内容（config.jsonのパス・鍵パス・データパス・表示言語）を表示する。"""
         try:
             key_path_display = str(self._resolve_key_path(None))
         except KeyNotFoundError:
-            key_path_display = "(未設定)"
+            key_path_display = formatter.format_message(
+                MsgKey.CONFIG_KEY_PATH_UNSET, self._current_language
+            )
         storage_path_display = str(self._resolve_storage_path(None))
 
-        print(f"config_path: {self._config_path}", file=self._stdout)
-        print(f"key_path: {key_path_display}", file=self._stdout)
-        print(f"storage_path: {storage_path_display}", file=self._stdout)
+        message = formatter.format_message(
+            MsgKey.CONFIG_SUMMARY,
+            self._current_language,
+            config_path=str(self._config_path),
+            key_path=key_path_display,
+            storage_path=storage_path_display,
+            lang=self._current_language,
+        )
+        print(message, file=self._stdout)
         return 0

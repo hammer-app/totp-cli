@@ -241,7 +241,7 @@ class TestLoadKey:
     def test_error_message_does_not_leak_key_content(
         self, key_manager: KeyManager, tmp_path: Path
     ) -> None:
-        """例外メッセージに鍵の内容（バイト列）が含まれないことを確認する（Zero Leakage Rule）。"""
+        """例外のmessage_key/contextに鍵の内容（バイト列）が含まれないことを確認する（Zero Leakage Rule）。"""
         target = tmp_path / "master.key"
         marker = b"\xde\xad\xbe\xef" * 10
         target.write_bytes(marker)
@@ -249,6 +249,9 @@ class TestLoadKey:
             key_manager.load_key(target)
         assert marker.hex() not in str(excinfo.value)
         assert "deadbeef" not in str(excinfo.value)
+        assert all(
+            marker.hex() not in value for value in excinfo.value.context.values()
+        )
 
     def test_raises_invalid_key_error_when_read_raises_permission_error(
         self, key_manager: KeyManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

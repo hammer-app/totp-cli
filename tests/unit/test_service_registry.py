@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 from vtotp.core.service_registry import ServiceRegistry
-from vtotp.domain.exceptions import ServiceNotFoundError
+from vtotp.domain.exceptions import ServiceNotFoundError, TotpCliError
 from vtotp.domain.models import SecretRecord
+from vtotp.i18n.catalog import MsgKey
 
 
 @pytest.fixture
@@ -58,13 +59,15 @@ class TestAdd:
         updated = registry.add({}, record)
         assert list(updated.keys()) == ["github"]
 
-    def test_duplicate_service_name_raises_value_error(
+    def test_duplicate_service_name_raises_totp_cli_error(
         self, registry: ServiceRegistry, github_record: SecretRecord
     ) -> None:
-        """同名のサービスを再度追加しようとするとValueErrorが送出されることを確認する（重複登録防止）。"""
+        """同名のサービスを再度追加しようとするとTotpCliErrorが送出されることを確認する（重複登録防止）。"""
         existing = registry.add({}, github_record)
-        with pytest.raises(ValueError):
+        with pytest.raises(TotpCliError) as excinfo:
             registry.add(existing, github_record)
+        assert excinfo.value.message_key is MsgKey.SERVICE_ALREADY_REGISTERED
+        assert excinfo.value.exit_code == 1
 
     def test_duplicate_detection_is_case_insensitive(
         self, registry: ServiceRegistry
@@ -73,19 +76,20 @@ class TestAdd:
         existing = registry.add(
             {}, SecretRecord(service_name="GitHub", secret="AAAAAAAA")
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(TotpCliError):
             registry.add(
                 existing, SecretRecord(service_name="github", secret="BBBBBBBB")
             )
 
-    def test_empty_service_name_raises_value_error(
+    def test_empty_service_name_raises_totp_cli_error(
         self, registry: ServiceRegistry
     ) -> None:
-        """空文字列（または空白のみ）のサービス名がValueErrorになることを確認する。"""
-        with pytest.raises(ValueError):
+        """空文字列（または空白のみ）のサービス名がTotpCliErrorになることを確認する。"""
+        with pytest.raises(TotpCliError) as excinfo:
             registry.add(
                 {}, SecretRecord(service_name="   ", secret="JBSWY3DPEHPK3PXP")
             )
+        assert excinfo.value.message_key is MsgKey.SERVICE_NAME_EMPTY
 
     def test_can_add_multiple_distinct_services(
         self, registry: ServiceRegistry
@@ -267,6 +271,10 @@ class TestZeroLeakageRule:
     ) -> None:
         """重複登録エラーのメッセージにシークレットの値が含まれないことを確認する。"""
         records = registry.add({}, github_record)
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(TotpCliError) as excinfo:
             registry.add(records, github_record)
         assert github_record.secret not in str(excinfo.value)
+        assert all(
+            github_record.secret not in value
+            for value in excinfo.value.context.values()
+        )

@@ -9,8 +9,8 @@ class TestVersion:
     """`vtotp.__version__` に関するテスト。"""
 
     def test_version_matches_pyproject_toml(self) -> None:
-        """`__version__` が `pyproject.toml` の `version`（0.1.5）と一致することを確認する。"""
-        assert vtotp.__version__ == "0.1.5"
+        """`__version__` が `pyproject.toml` の `version`（0.2.0）と一致することを確認する。"""
+        assert vtotp.__version__ == "0.2.0"
 
     def test_version_is_exported_via_all(self) -> None:
         """`__version__` が `__all__` を通じて公開されていることを確認する。"""

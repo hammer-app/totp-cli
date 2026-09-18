@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from vtotp.domain.exceptions import InvalidKeyError, StorageCorruptedError
 from vtotp.domain.models import EncryptedPayload, SecretRecord
+from vtotp.i18n.catalog import MsgKey
 
 
 class SecureStorage:
@@ -114,30 +115,27 @@ class SecureStorage:
         self._validate_key_size(key)
         if encrypted_payload.version != self.FORMAT_VERSION:
             raise StorageCorruptedError(
-                f"サポートされていない暗号化フォーマットバージョンです: {encrypted_payload.version!r}"
+                MsgKey.STORAGE_UNSUPPORTED_VERSION,
+                context={"version": repr(encrypted_payload.version)},
             )
         if encrypted_payload.algorithm != self.ALGORITHM:
             raise StorageCorruptedError(
-                f"サポートされていない暗号化アルゴリズムです: {encrypted_payload.algorithm!r}"
+                MsgKey.STORAGE_UNSUPPORTED_ALGORITHM,
+                context={"algorithm": repr(encrypted_payload.algorithm)},
             )
         try:
             return AESGCM(key).decrypt(
                 encrypted_payload.nonce, encrypted_payload.ciphertext, None
             )
         except (InvalidTag, ValueError) as exc:
-            raise StorageCorruptedError(
-                "暗号化データの認証タグ検証に失敗しました"
-                "（データの改ざん、破損、または不正な鍵の可能性があります）"
-            ) from exc
+            raise StorageCorruptedError(MsgKey.STORAGE_DECRYPTION_FAILED) from exc
 
     # --- 内部ヘルパー ---
 
     def _validate_key_size(self, key: bytes) -> None:
         """鍵が32バイトであることを検証する。"""
         if len(key) != self.KEY_SIZE_BYTES:
-            raise InvalidKeyError(
-                f"鍵のサイズが不正です（{self.KEY_SIZE_BYTES}バイトである必要があります）"
-            )
+            raise InvalidKeyError(MsgKey.KEY_INVALID_SIZE_NO_PATH)
 
     def _document_from_records(
         self, records: dict[str, SecretRecord]
@@ -157,18 +155,18 @@ class SecureStorage:
         """復号後の論理JSON構造をSecretRecordの辞書へ変換する。"""
         services = document.get("services")
         if not isinstance(services, dict):
-            raise StorageCorruptedError("復号したデータの構造が不正です")
+            raise StorageCorruptedError(MsgKey.STORAGE_INVALID_STRUCTURE)
 
         records: dict[str, SecretRecord] = {}
         for service_name, entry in services.items():
             if not isinstance(service_name, str) or not isinstance(entry, dict):
-                raise StorageCorruptedError("復号したデータの構造が不正です")
+                raise StorageCorruptedError(MsgKey.STORAGE_INVALID_STRUCTURE)
             secret = entry.get("secret")
             issuer = entry.get("issuer")
             if not isinstance(secret, str):
-                raise StorageCorruptedError("復号したデータの構造が不正です")
+                raise StorageCorruptedError(MsgKey.STORAGE_INVALID_STRUCTURE)
             if issuer is not None and not isinstance(issuer, str):
-                raise StorageCorruptedError("復号したデータの構造が不正です")
+                raise StorageCorruptedError(MsgKey.STORAGE_INVALID_STRUCTURE)
             records[service_name] = SecretRecord(
                 service_name=service_name, secret=secret, issuer=issuer
             )
@@ -183,29 +181,33 @@ class SecureStorage:
         try:
             document = json.loads(plaintext.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise StorageCorruptedError("復号したデータの形式が不正です") from exc
+            raise StorageCorruptedError(MsgKey.STORAGE_INVALID_FORMAT) from exc
 
         if (
             not isinstance(document, dict)
             or document.get("version") != self.FORMAT_VERSION
         ):
-            raise StorageCorruptedError("復号したデータの形式が不正です")
+            raise StorageCorruptedError(MsgKey.STORAGE_INVALID_FORMAT)
         return document
 
     def _read_encrypted_payload(self, path: Path) -> EncryptedPayload:
         """暗号化ファイルを読み込み、EncryptedPayloadへ変換する。"""
         if not path.is_file():
-            raise StorageCorruptedError(f"暗号化データファイルが見つかりません: {path}")
+            raise StorageCorruptedError(
+                MsgKey.STORAGE_FILE_NOT_FOUND, context={"path": str(path)}
+            )
 
         try:
             raw_document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise StorageCorruptedError(
-                f"暗号化データファイルを読み込めません: {path}"
+                MsgKey.STORAGE_FILE_UNREADABLE, context={"path": str(path)}
             ) from exc
 
         if not isinstance(raw_document, dict):
-            raise StorageCorruptedError(f"暗号化データファイルの形式が不正です: {path}")
+            raise StorageCorruptedError(
+                MsgKey.STORAGE_FILE_INVALID_FORMAT, context={"path": str(path)}
+            )
 
         try:
             version = raw_document["version"]
@@ -214,20 +216,24 @@ class SecureStorage:
             ciphertext_b64 = raw_document["ciphertext"]
         except KeyError as exc:
             raise StorageCorruptedError(
-                f"暗号化データファイルの形式が不正です: {path}"
+                MsgKey.STORAGE_FILE_INVALID_FORMAT, context={"path": str(path)}
             ) from exc
 
         if not isinstance(version, int) or not isinstance(algorithm, str):
-            raise StorageCorruptedError(f"暗号化データファイルの形式が不正です: {path}")
+            raise StorageCorruptedError(
+                MsgKey.STORAGE_FILE_INVALID_FORMAT, context={"path": str(path)}
+            )
         if not isinstance(nonce_b64, str) or not isinstance(ciphertext_b64, str):
-            raise StorageCorruptedError(f"暗号化データファイルの形式が不正です: {path}")
+            raise StorageCorruptedError(
+                MsgKey.STORAGE_FILE_INVALID_FORMAT, context={"path": str(path)}
+            )
 
         try:
             nonce = base64.b64decode(nonce_b64, validate=True)
             ciphertext = base64.b64decode(ciphertext_b64, validate=True)
         except binascii.Error as exc:
             raise StorageCorruptedError(
-                f"暗号化データファイルの形式が不正です: {path}"
+                MsgKey.STORAGE_FILE_INVALID_FORMAT, context={"path": str(path)}
             ) from exc
 
         return EncryptedPayload(
@@ -288,4 +294,4 @@ class SecureStorage:
         """再暗号化した一時ファイルが新鍵で正しく復号でき、内容が一致することを検証する。"""
         verified_records = self.load_secrets(tmp_path, new_key)
         if verified_records != expected_records:
-            raise StorageCorruptedError("再暗号化データの検証に失敗しました")
+            raise StorageCorruptedError(MsgKey.STORAGE_REKEY_VERIFICATION_FAILED)

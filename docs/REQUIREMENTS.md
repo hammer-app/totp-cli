@@ -147,9 +147,10 @@
 5. **PE ヘッダーメタデータの明記**:
    * 未署名バイナリにおける不審度（SEP等のレピュテーション判定）を緩和するため、Nuitka ビルド時に Windows PE メタデータ（会社名、製品名、バージョン、ファイル説明文、著作権表示等）をバイナリヘッダーへ明記すること。
 
-6. **プレビュー版（Pre-release）運用と除外申請ライフサイクル**:
-   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、新規マイナーリリースは即座に本番適用せず、`release/v0.2.x` ブランチ経由でプレビュー版タグ（`v0.2.0-preview.*`）による Pre-release 運用を実施すること。
-   * GitHub Actions のリリースワークフロー内で生成バイナリの SHA-256 チェックサムを出力・添付し、ベンダーへの誤検知除外申請（False Positive Submission）および実機検証を経てから正式版リリース（`main` マージおよび正式タグ発行）へ昇格させること。
+6. **プレリリース（Pre-release）運用と除外申請ライフサイクル（プロモーション方式）**:
+   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、新規バージョンタグ（例: `v0.2.0`）発行時、GitHub Actions によるリリース成果物は自動的に「Pre-release」として公開すること。
+   * Nuitka により生成された `vtotp.exe` の SHA-256 チェックサムを Release ノートおよびサイドカーファイル（`vtotp.exe.sha256`）として添付し、その検証済みバイナリを用いてベンダーへの誤検知除外申請（False Positive Submission）および実機検証を実施すること。
+   * SEP で検知解除を確認できた後、バイナリの再コンパイルを行わずに当該リリースを「Latest（正式リリース）」へ昇格（プロモート）させること（`gh release edit <tag> --latest --prerelease=false` または GitHub Web UI）。これにより、再ビルドによるバイナリハッシュ変化とそれに伴う SEP 再検知リスクを完全に排除する。
 
 ### 4.5 多言語化設計要件 (Internationalization Architecture)
 
@@ -188,7 +189,8 @@
 2. **オプションの後置原則**:
    * すべてのコマンドオプション（言語指定 `-l`/`--lang`、鍵指定 `-k`/`--key` 等）は、必ずサブコマンドまたはサービス名の後方に指定する。
    * **正式サブコマンド形式**: `vtotp <サブコマンド> <サービス名> [オプション...]`
-     * 例: `vtotp get github -l ja` （位置引数 `SERVICE` とオプションは順不同: `vtotp get -l ja github` も可）
+     * `SERVICE` はサブコマンド直後の必須位置引数であり、オプションは必ず `SERVICE` の後方に指定する（`vtotp get -l ja github` や `vtotp get --key PATH github` などの前置配置は非サポート・終了コード2）。
+     * 例: `vtotp get github -l ja`
      * ※ サービス名を伴わないサブコマンド（`list`, `init`, `config`, `rekey` 等）は `vtotp <サブコマンド> [オプション...]` とする（例: `vtotp list -l en`, `vtotp init -k "PATH" -l ja`, `vtotp config -l ja`）。
    * **省略形形式 (Shorthand Fallback)**: `vtotp <サービス名> [オプション...]`
      * 第一引数が予約サブコマンドでない場合、自動的に `generate <サービス名>` として処理する。

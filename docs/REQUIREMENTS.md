@@ -160,7 +160,8 @@
    * Windows PE バージョン情報は数値 4 区切り（`X.Y.Z.W`）の形式とし、末尾の第4要素（ビルド番号 / プライベートパート `W`）は常に `0` 固定とすること（例: タグ `v0.2.0` やプレリリース識別子の有無に関わらず `0.2.0.0` に正規化）。
 
 6. **プレリリース（Pre-release）運用と除外申請ライフサイクル（プロモーション方式）**:
-   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、新規バージョンタグ（例: `v0.2.0`）発行時、GitHub Actions によるリリース成果物（Standalone ZIP 版、Onefile EXE 版）は自動的に「Pre-release」として公開すること。
+   * 配布バイナリ更新時のハッシュ変更に伴う SEP（Symantec Endpoint Protection）等のヒューリスティック誤検知リスクに備え、**Git タグにはプレリリース識別子（`-preview.x` や `-rc.x` 等）を付与せず、最初から正式版タグ（`vX.Y.Z`、例: `v0.2.0`）を発行すること**（プレリリース状態はタグ名ではなく GitHub Release のステータスで管理する）。
+   * 新規バージョンタグ発行時、GitHub Actions によるリリース成果物（Standalone ZIP 版、Onefile EXE 版）は自動的に「Pre-release」として公開すること。
    * 各成果物の SHA-256 チェックサムを Release ノートおよびサイドカーファイル（`vtotp.exe.sha256`, `vtotp-windows-x64.zip.sha256`）として添付し、その検証済みバイナリを用いてベンダーへの誤検知除外申請（False Positive Submission）および実機検証を実施すること。
    * SEP で検知解除を確認できた後、バイナリの再コンパイルを行わずに当該リリースを「Latest（正式リリース）」へ昇格（プロモート）させること（`gh release edit <tag> --latest --prerelease=false` または GitHub Web UI）。これにより、再ビルドによるバイナリハッシュ変化とそれに伴う SEP 再検知リスクを完全に排除する。
 
